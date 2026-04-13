@@ -1,0 +1,156 @@
+# =============================================================================
+# Module: Platform
+# Entity: NotificationPreference
+# Description: User notification preferences
+# =============================================================================
+
+# =============================================================================
+# Enums
+# =============================================================================
+
+enums:
+  - name: NotificationChannel
+    description: "Notification channel"
+    variants:
+      - name: push
+        description: "Push notification"
+        default: true
+      - name: sms
+        description: "SMS"
+      - name: email
+        description: "Email"
+      - name: whatsapp
+        description: "WhatsApp"
+      - name: in_app
+        description: "In-app notification"
+
+  - name: NotificationCategory
+    description: "Notification category"
+    variants:
+      - name: order
+        description: "Order updates"
+        default: true
+      - name: promo
+        description: "Promotions"
+      - name: payment
+        description: "Payment updates"
+      - name: delivery
+        description: "Delivery updates"
+      - name: loyalty
+        description: "Loyalty/points"
+      - name: system
+        description: "System notifications"
+      - name: marketing
+        description: "Marketing messages"
+      - name: reminder
+        description: "Reminders"
+
+  - name: PreferenceStatus
+    description: "Preference status"
+    variants:
+      - name: enabled
+        description: "Enabled"
+        default: true
+      - name: disabled
+        description: "Disabled"
+
+# =============================================================================
+# Models
+# =============================================================================
+
+models:
+  # ===========================================================================
+  # NotificationPreference
+  # ===========================================================================
+  - name: NotificationPreference
+    collection: notification_preferences
+    description: "User notification preferences"
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique preference identifier"
+
+      user_id:
+        type: uuid
+        attributes: ["@required", "@foreign_key(sapiens.User.id)"]
+        description: "User"
+
+      # =======================================================================
+      # Preference Target
+      # =======================================================================
+      channel:
+        type: NotificationChannel
+        attributes: ["@required"]
+        description: "Notification channel"
+
+      category:
+        type: NotificationCategory
+        attributes: ["@required"]
+        description: "Notification category"
+
+      # =======================================================================
+      # Status
+      # =======================================================================
+      status:
+        type: PreferenceStatus
+        attributes: ["@default(enabled)"]
+        description: "Preference status"
+
+      is_enabled:
+        type: bool
+        attributes: ["@default(true)"]
+        description: "Is enabled"
+
+      # =======================================================================
+      # Quiet Hours
+      # =======================================================================
+      quiet_hours_enabled:
+        type: bool
+        attributes: ["@default(false)"]
+        description: "Quiet hours enabled"
+
+      quiet_start:
+        type: string?
+        attributes: ["@max(5)"]
+        description: "Quiet hours start (HH:MM)"
+
+      quiet_end:
+        type: string?
+        attributes: ["@max(5)"]
+        description: "Quiet hours end (HH:MM)"
+
+      # =======================================================================
+      # Frequency
+      # =======================================================================
+      frequency:
+        type: string?
+        attributes: ["@max(20)"]
+        description: "Frequency (immediate, daily_digest, weekly_digest)"
+
+      max_per_day:
+        type: int?
+        attributes: ["@positive"]
+        description: "Maximum notifications per day"
+
+      data:
+        type: json
+        attributes: ["@default('{}')"]
+        description: "Additional metadata"
+
+    relations:
+      user:
+        type: sapiens.User
+        attributes: ["@one", "@foreign_key(user_id)"]
+        description: "User"
+        inverse: notification_preferences
+
+    indexes:
+      - type: unique
+        fields: [user_id, channel, category]
+        where: "deleted_at IS NULL"
+      - type: index
+        fields: [user_id, is_enabled]
+      - type: index
+        fields: [channel, category]
