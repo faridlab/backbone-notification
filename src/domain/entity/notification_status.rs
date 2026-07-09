@@ -1,30 +1,31 @@
 use serde::{Deserialize, Serialize};
 use sqlx::Type;
 use std::str::FromStr;
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "notification_status", rename_all = "snake_case")]
 pub enum NotificationStatus {
     Pending,
-    Scheduled,
     Sent,
     Delivered,
-    Read,
+    Undelivered,
     Failed,
-    Cancelled,
+    Skipped,
 }
 
 impl std::fmt::Display for NotificationStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Pending => write!(f, "pending"),
-            Self::Scheduled => write!(f, "scheduled"),
             Self::Sent => write!(f, "sent"),
             Self::Delivered => write!(f, "delivered"),
-            Self::Read => write!(f, "read"),
+            Self::Undelivered => write!(f, "undelivered"),
             Self::Failed => write!(f, "failed"),
-            Self::Cancelled => write!(f, "cancelled"),
+            Self::Skipped => write!(f, "skipped"),
         }
     }
 }
@@ -35,12 +36,11 @@ impl FromStr for NotificationStatus {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "pending" => Ok(Self::Pending),
-            "scheduled" => Ok(Self::Scheduled),
             "sent" => Ok(Self::Sent),
             "delivered" => Ok(Self::Delivered),
-            "read" => Ok(Self::Read),
+            "undelivered" => Ok(Self::Undelivered),
             "failed" => Ok(Self::Failed),
-            "cancelled" => Ok(Self::Cancelled),
+            "skipped" => Ok(Self::Skipped),
             _ => Err(format!("Unknown NotificationStatus variant: {}", s)),
         }
     }

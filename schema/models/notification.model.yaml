@@ -1,267 +1,96 @@
 # =============================================================================
-# Domain: Platform
+# Domain: Notification
 # Entity: Notification
-# Description: User notifications
-# =============================================================================
-
-# =============================================================================
-# Enums
-# =============================================================================
-
-enums:
-  # ---------------------------------------------------------------------------
-  # Notification Type
-  # ---------------------------------------------------------------------------
-  - name: NotificationType
-    description: "Type of notification"
-    variants:
-      - name: order
-        description: "Order-related notification"
-        default: true
-      - name: payment
-        description: "Payment notification"
-      - name: promo
-        description: "Promotional notification"
-      - name: marketing
-        description: "Marketing notification"
-      - name: system
-        description: "System notification"
-      - name: reminder
-        description: "Reminder notification"
-      - name: alert
-        description: "Alert/warning notification"
-
-  # ---------------------------------------------------------------------------
-  # Notification Status
-  # ---------------------------------------------------------------------------
-  - name: NotificationStatus
-    description: "Notification delivery status"
-    variants:
-      - name: pending
-        description: "Pending delivery"
-        default: true
-      - name: scheduled
-        description: "Scheduled for later"
-      - name: sent
-        description: "Sent"
-      - name: delivered
-        description: "Delivered"
-      - name: read
-        description: "Read"
-      - name: failed
-        description: "Delivery failed"
-      - name: cancelled
-        description: "Cancelled"
-
-  # ---------------------------------------------------------------------------
-  # Notification Priority
-  # ---------------------------------------------------------------------------
-  - name: NotificationPriority
-    description: "Notification priority level"
-    variants:
-      - name: low
-        description: "Low priority"
-      - name: normal
-        description: "Normal priority"
-        default: true
-      - name: high
-        description: "High priority"
-      - name: urgent
-        description: "Urgent"
-
-  # ---------------------------------------------------------------------------
-  # Digest Frequency
-  # ---------------------------------------------------------------------------
-  - name: DigestFrequency
-    description: "How often to send digest"
-    variants:
-      - name: daily
-        description: "Daily digest"
-        default: true
-      - name: weekly
-        description: "Weekly digest"
-
-# =============================================================================
-# Models
+# Description: One rendered notification for ONE recipient of ONE domain event. Fan-out creates one row per
+# recipient. **Idempotent per (event_id, recipient_address)** — a redelivered domain event does not
+# re-create nor re-dispatch a recipient's notification (the inbox pattern realized on the natural
+# idempotency key). Dispatched through backbone-communication; `message_id` correlates back to the
+# communication message. Posts NO GL.
 # =============================================================================
 
 models:
-  # ---------------------------------------------------------------------------
-  # Notification - User notification record
-  # ---------------------------------------------------------------------------
   - name: Notification
     collection: notifications
-    description: "User notification (in-app, push, SMS, WhatsApp, email)"
-
+    description: "One rendered notification for one recipient of one event (idempotent per event+recipient)"
     fields:
       id:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
-        description: "Unique notification identifier"
-
-      # =======================================================================
-      # Recipient
-      # =======================================================================
-      user_id:
+        description: "Unique notification id"
+      company_id:
         type: uuid
-        attributes: ["@required", "@foreign_key(sapiens.User.id)"]
-        description: "Recipient user"
-
-      # =======================================================================
-      # Type & Channel
-      # =======================================================================
-      notification_type:
-        type: NotificationType
-        attributes: ["@required"]
-        description: "Type of notification"
-
-      channel:
-        type: NotificationChannel
-        attributes: ["@required"]
-        description: "Delivery channel"
-
-      # =======================================================================
-      # Content
-      # =======================================================================
-      title:
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Org owner # logical FK to organization.Company.id"
+      event_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "The domain event instance that triggered this # the dedup key"
+      event_type:
         type: string
-        attributes: ["@required", "@max(255)"]
-        description: "Notification title"
-
-      body:
-        type: string
-        attributes: ["@required", "@max(2000)"]
-        description: "Notification body"
-
-      image_url:
-        type: string?
-        attributes: ["@max(500)"]
-        description: "Image URL"
-
-      action_url:
-        type: string?
-        attributes: ["@max(500)"]
-        description: "Deep link or URL"
-
-      action_type:
-        type: string?
-        attributes: ["@max(50)"]
-        description: "Action type"
-
-      # =======================================================================
-      # Context
-      # =======================================================================
-      reference_type:
-        type: string?
-        attributes: ["@max(50)"]
-        description: "Reference entity type (order, payment, etc.)"
-
-      reference_id:
+        attributes: ["@required", "@length(max=80)"]
+        description: "The domain event type (OrderConfirmed, …)"
+      template_id:
         type: uuid?
         attributes: ["@exclude_from_foreign_key_check"]
-        description: "Reference entity ID"
-
-      # =======================================================================
-      # Delivery
-      # =======================================================================
+        description: "The template rendered # logical FK to NotificationTemplate.id"
+      channel:
+        type: NotifChannel
+        attributes: ["@required"]
+        description: "The channel dispatched over"
+      recipient_party_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "The recipient party # logical FK to party.Party.id"
+      recipient_address:
+        type: string
+        attributes: ["@required", "@length(max=200)"]
+        description: "The recipient address (phone/email) — part of the idempotency key"
+      subject:
+        type: string?
+        attributes: ["@length(max=200)"]
+        description: "Rendered subject (email)"
+      body:
+        type: string
+        attributes: ["@required", "@length(max=4000)"]
+        description: "Rendered body"
       status:
         type: NotificationStatus
-        attributes: ["@default(pending)"]
-        description: "Delivery status"
-
-      scheduled_at:
-        type: datetime?
-        description: "Scheduled delivery time"
-
-      sent_at:
-        type: datetime?
-        description: "When sent"
-
-      delivered_at:
-        type: datetime?
-        description: "When delivered"
-
-      read_at:
-        type: datetime?
-        description: "When read"
-
-      failed_at:
-        type: datetime?
-        description: "Failure timestamp"
-
+        attributes: ["@required", "@default(pending)"]
+        description: "pending → sent | failed | skipped"
+      message_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "The dispatched communication message # logical FK to communication.Message.id"
       failure_reason:
         type: string?
-        attributes: ["@max(255)"]
-        description: "Failure reason"
-
-      retry_count:
-        type: int
-        attributes: ["@default(0)", "@non_negative"]
-        description: "Retry attempts"
-
-      # =======================================================================
-      # External References
-      # =======================================================================
-      external_id:
-        type: string?
-        attributes: ["@max(100)", "@exclude_from_foreign_key_check"]
-        description: "External message ID"
-
-      # =======================================================================
-      # Priority
-      # =======================================================================
-      priority:
-        type: NotificationPriority
-        attributes: ["@default(normal)"]
-        description: "Notification priority"
-
-      # =======================================================================
-      # Interaction
-      # =======================================================================
-      is_actionable:
-        type: bool
-        attributes: ["@default(false)"]
-        description: "Has action button"
-
-      action_taken:
-        type: bool
-        attributes: ["@default(false)"]
-        description: "User took action"
-
-      action_taken_at:
-        type: datetime?
-        description: "Action timestamp"
-
-      # =======================================================================
-      # Dismissal
-      # =======================================================================
-      is_dismissed:
-        type: bool
-        attributes: ["@default(false)"]
-        description: "User dismissed"
-
-      dismissed_at:
-        type: datetime?
-        description: "Dismissal timestamp"
-
+        attributes: ["@length(max=300)"]
+        description: "Why dispatch failed"
       metadata:
         type: Metadata
         attributes: ["@audit_metadata"]
-        description: "Audit metadata (created_at, updated_at, deleted_at, created_by, updated_by, deleted_by)"
-
-    relations:
-      user:
-        type: sapiens.User
-        attributes: ["@one", "@foreign_key(user_id)"]
-        description: "Recipient"
-        inverse: notifications
-
+        description: "Audit metadata"
     indexes:
+      # The idempotency guard: one notification per (event, recipient). A redelivered domain event that
+      # re-runs the fan-out conflicts here and is skipped — no double-notify.
+      - type: unique
+        fields: [event_id, recipient_address]
       - type: index
-        fields: [user_id, status, created_at]
-      - type: index
-        fields: [user_id, notification_type, created_at]
-      - type: index
-        fields: [status, scheduled_at]
-      - type: index
-        fields: [reference_type, reference_id]
+        fields: [company_id, status]
+
+enums:
+  - name: NotificationStatus
+    description: "Notification lifecycle"
+    variants:
+      - name: pending
+        description: "Recorded, not yet dispatched"
+        default: true
+      - name: sent
+        description: "Handed to the channel gateway (accepted for send) — not yet confirmed delivered"
+      - name: delivered
+        description: "The provider confirmed delivery to the recipient (communication MessageDelivered)"
+      - name: undelivered
+        description: "The provider reported non-delivery after hand-off (communication MessageFailed)"
+      - name: failed
+        description: "The gateway REJECTED the dispatch (never handed off)"
+      - name: skipped
+        description: "No active template for the (event_type, channel) — nothing to send"
