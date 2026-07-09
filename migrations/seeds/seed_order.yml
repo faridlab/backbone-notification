@@ -8,4 +8,4 @@
 # Seeds not listed here will be executed after in alphabetical order.
 
 - notification_seed
-- notification_preference_seed
+- notification_template_seed

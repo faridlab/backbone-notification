@@ -9,7 +9,8 @@
 
 module: notification
 version: 2
-description: "Notification delivery and user preferences (extracted from bersihir)"
+schema: notification
+description: "Outbound templated notification fan-out — subscribes to domain events, renders a template, and dispatches through backbone-communication; idempotent per (event_id, recipient)"
 
 # Module-level configuration
 config:
@@ -62,5 +63,5 @@ shared_types:
 
 # Import all model files
 imports:
+  - notification_template.model.yaml
   - notification.model.yaml
-  - notification_preference.model.yaml
