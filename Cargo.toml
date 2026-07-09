@@ -76,3 +76,8 @@ pretty_assertions = "1.0"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 jsonwebtoken = "9.3"
 rand = "0.8"
+
+# TEST-ONLY edge: the dispatch seam proves a notification lands a REAL outbound message in backbone-
+# communication (the channel gateway) via an in-test CommunicationPort. Dev-dependency ONLY — the shipped
+# library reaches communication through the port, never a Cargo edge.
+backbone-communication = { path = "../backbone-communication" }
