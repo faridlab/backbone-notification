@@ -12,7 +12,9 @@ use std::sync::Arc;
 // Import handlers
 use crate::presentation::http::{
     create_notification_routes,
-    create_notification_template_routes
+    create_notification_read_routes,
+    create_notification_template_routes,
+    create_notification_template_read_routes
 };
 
 // Import AppState for stateful routes
@@ -38,6 +40,17 @@ pub fn create_stateless_routes(module: &crate::NotificationModule) -> Router<()>
     Router::new()
         .merge(create_notification_routes(module.notification_service.clone()))
         .merge(create_notification_template_routes(module.notification_template_service.clone()))
+}
+
+/// Read-only routes for the Notification module — every entity mounted READ-ONLY (the guarded base).
+///
+/// The generic `create_stateless_routes` exposes full mutable CRUD with no domain
+/// validation; this exposes only reads, so generic mutation can't bypass a write
+/// service's invariants. Extend it: `create_readonly_notification_routes(m).merge(my_validated_writes)`.
+pub fn create_readonly_notification_routes(module: &crate::NotificationModule) -> Router<()> {
+    Router::new()
+        .merge(create_notification_read_routes(module.notification_service.clone()))
+        .merge(create_notification_template_read_routes(module.notification_template_service.clone()))
 }
 
 /// Get all routes (stateless) for the Notification module.
