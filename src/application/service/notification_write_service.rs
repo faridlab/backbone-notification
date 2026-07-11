@@ -251,6 +251,7 @@ impl NotificationWriteService {
             DeliveryOutcome::Delivered => ("delivered", None),
             DeliveryOutcome::Undelivered(reason) => ("undelivered", Some(reason.clone())),
         };
+        let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
             r#"UPDATE notification.notifications
                SET status=$2::notification_status, failure_reason=COALESCE($3, failure_reason)
@@ -258,17 +259,29 @@ impl NotificationWriteService {
                RETURNING id, event_id"#,
         )
         .bind(message_id).bind(status).bind(&reason)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
-        let Some(row) = row else { return Ok(false) };
+        let Some(row) = row else { tx.rollback().await?; return Ok(false) };
         let notification_id: Uuid = row.get("id");
         let event_id: Uuid = row.get("event_id");
-        match outcome {
+        let event = match outcome {
             DeliveryOutcome::Delivered =>
-                events.publish(&NotificationEvent::NotificationDelivered { notification_id, event_id }),
+                NotificationEvent::NotificationDelivered { notification_id, event_id },
             DeliveryOutcome::Undelivered(reason) =>
-                events.publish(&NotificationEvent::NotificationUndelivered { notification_id, event_id, reason }),
-        }
+                NotificationEvent::NotificationUndelivered { notification_id, event_id, reason },
+        };
+        // Stage the delivery-state event durably in the same tx as the status transition (outbox rollout
+        // plan, P2): a consumer escalates on it, so a crash before the in-proc publish must not drop it.
+        let record = backbone_outbox::OutboxRecord::new(
+            match &event { NotificationEvent::NotificationUndelivered { .. } => "NotificationUndelivered", _ => "NotificationDelivered" },
+            "Notification", notification_id.to_string(),
+            serde_json::to_value(&event).map_err(|e| NotifyError::Invalid(e.to_string()))?,
+            chrono::Utc::now(),
+        );
+        backbone_outbox::outbox::stage(&mut *tx, "notification", &record)
+            .await.map_err(|e| NotifyError::Invalid(format!("outbox stage: {e}")))?;
+        tx.commit().await?;
+        events.publish(&event);
         Ok(true)
     }
 

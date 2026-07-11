@@ -8,6 +8,7 @@ description = "Notification delivery and user preferences"
 path = "src/lib.rs"
 
 [dependencies]
+backbone-outbox = { path = "../backbone-framework/backbone-outbox" }
 # Backbone Framework CORE dependencies
 backbone-core = { git = "https://github.com/faridlab/backbone-framework", branch = "main", features = ["postgres"] }
 backbone-orm = { git = "https://github.com/faridlab/backbone-framework", branch = "main" }
