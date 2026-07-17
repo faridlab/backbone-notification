@@ -6,6 +6,7 @@
 //! notification (the inbox pattern realized on the notification row's natural idempotency key). Posts NO
 //! GL. The Indonesia statutory/business content is the template author's concern, not this engine's.
 
+use backbone_orm::company_scope;
 use serde::Deserialize;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -82,15 +83,17 @@ impl NotificationWriteService {
             return Err(NotifyError::Invalid("template needs a body".into()));
         }
         let id = Uuid::new_v4();
-        let r = sqlx::query(
+        let ins_q = sqlx::query(
             r#"INSERT INTO notification.notification_templates
                  (id, company_id, event_type, channel, name, subject_template, body_template, is_active)
                VALUES ($1,$2,$3,$4::notif_channel,$5,$6,$7,true)"#,
         )
         .bind(id).bind(t.company_id).bind(&t.event_type).bind(&t.channel).bind(&t.name)
-        .bind(&t.subject_template).bind(&t.body_template)
-        .execute(&self.pool)
-        .await;
+        .bind(&t.subject_template).bind(&t.body_template);
+        let r = company_scope::with_company_scope(
+            Some(t.company_id),
+            company_scope::execute_scoped(&self.pool, ins_q),
+        ).await;
         match r {
             Ok(_) => Ok(id),
             Err(e) if e.as_database_error().map(|d| d.is_unique_violation()).unwrap_or(false) =>
@@ -112,15 +115,17 @@ impl NotificationWriteService {
         let mut outcome = NotifyOutcome::default();
 
         // Resolve the active template for (company, event_type, channel).
-        let template: Option<TemplateRow> = sqlx::query_as::<_, (Uuid, Option<String>, String)>(
+        let template_q = sqlx::query_as::<_, (Uuid, Option<String>, String)>(
             r#"SELECT id, subject_template, body_template FROM notification.notification_templates
                WHERE company_id=$1 AND event_type=$2 AND channel=$3::notif_channel AND is_active=true
                  AND (metadata->>'deleted_at') IS NULL
                LIMIT 1"#,
         )
-        .bind(ev.company_id).bind(&ev.event_type).bind(&ev.channel)
-        .fetch_optional(&self.pool)
-        .await?
+        .bind(ev.company_id).bind(&ev.event_type).bind(&ev.channel);
+        let template: Option<TemplateRow> = company_scope::with_company_scope(
+            Some(ev.company_id),
+            company_scope::fetch_optional_scoped(&self.pool, template_q),
+        ).await?
         .map(|(id, subject_template, body_template)| TemplateRow { id, subject_template, body_template });
 
         let Some(template) = template else {
@@ -137,7 +142,7 @@ impl NotificationWriteService {
             let body = render(&template.body_template, &ev.data);
 
             // Claim the (event_id, recipient) dedup slot. A redelivered event conflicts here → deduped.
-            let inserted: Option<Uuid> = sqlx::query_scalar(
+            let claim_q = sqlx::query_scalar(
                 r#"INSERT INTO notification.notifications
                      (id, company_id, event_id, event_type, template_id, channel, recipient_party_id,
                       recipient_address, subject, body, status)
@@ -146,9 +151,11 @@ impl NotificationWriteService {
                    RETURNING id"#,
             )
             .bind(Uuid::new_v4()).bind(ev.company_id).bind(ev.event_id).bind(&ev.event_type)
-            .bind(template.id).bind(&ev.channel).bind(r.party_id).bind(&r.address).bind(&subject).bind(&body)
-            .fetch_optional(&self.pool)
-            .await?;
+            .bind(template.id).bind(&ev.channel).bind(r.party_id).bind(&r.address).bind(&subject).bind(&body);
+            let inserted: Option<Uuid> = company_scope::with_company_scope(
+                Some(ev.company_id),
+                company_scope::fetch_optional_scalar_scoped(&self.pool, claim_q),
+            ).await?;
 
             let Some(notification_id) = inserted else {
                 outcome.deduped += 1;
@@ -164,14 +171,16 @@ impl NotificationWriteService {
             };
             match port.dispatch(&req).await {
                 Ok(ack) => {
-                    self.mark_sent(notification_id, ack.message_id).await?;
+                    company_scope::with_company_scope(
+                        Some(ev.company_id), self.mark_sent(notification_id, ack.message_id)).await?;
                     outcome.dispatched += 1;
                     events.publish(&NotificationEvent::NotificationDispatched {
                         notification_id, event_id: ev.event_id, message_id: ack.message_id,
                     });
                 }
                 Err(rej) => {
-                    self.mark_failed(notification_id, &rej.message).await?;
+                    company_scope::with_company_scope(
+                        Some(ev.company_id), self.mark_failed(notification_id, &rej.message)).await?;
                     outcome.failed += 1;
                     events.publish(&NotificationEvent::NotificationFailed {
                         notification_id, event_id: ev.event_id, reason: rej.code.clone(),
@@ -194,38 +203,43 @@ impl NotificationWriteService {
         port: &dyn CommunicationPort,
         events: &dyn NotificationEventSink,
     ) -> Result<usize, NotifyError> {
-        let rows = sqlx::query(
+        // The sweep carries no company of its own — it reads under the AMBIENT scope, so the CALLER (the
+        // scheduler) MUST wrap this call in `with_company_scope(Some(company))` and drive it once per
+        // company; otherwise the RLS fence returns nothing and the stranded rows are never re-driven.
+        let rows_q = sqlx::query(
             r#"SELECT id, event_id, company_id, channel::text AS channel, recipient_party_id,
                       recipient_address, subject, body
                FROM notification.notifications
                WHERE status='pending'::notification_status AND (metadata->>'deleted_at') IS NULL
                ORDER BY (metadata->>'created_at') NULLS FIRST LIMIT $1"#,
         )
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?;
+        .bind(limit);
+        let rows = company_scope::fetch_all_rows_scoped(&self.pool, rows_q).await?;
 
         let mut dispatched = 0usize;
         for row in &rows {
             let notification_id: Uuid = row.get("id");
             let event_id: Uuid = row.get("event_id");
+            let row_company: Uuid = row.get("company_id");
             let req = DispatchRequest {
                 idempotency_key: notification_id.to_string(),
-                company_id: row.get("company_id"), channel: row.get("channel"),
+                company_id: row_company, channel: row.get("channel"),
                 recipient_party_id: row.get("recipient_party_id"),
                 recipient_address: row.get("recipient_address"),
                 subject: row.get("subject"), body: row.get("body"),
             };
             match port.dispatch(&req).await {
                 Ok(ack) => {
-                    self.mark_sent(notification_id, ack.message_id).await?;
+                    company_scope::with_company_scope(
+                        Some(row_company), self.mark_sent(notification_id, ack.message_id)).await?;
                     dispatched += 1;
                     events.publish(&NotificationEvent::NotificationDispatched {
                         notification_id, event_id, message_id: ack.message_id,
                     });
                 }
                 Err(rej) => {
-                    self.mark_failed(notification_id, &rej.message).await?;
+                    company_scope::with_company_scope(
+                        Some(row_company), self.mark_failed(notification_id, &rej.message)).await?;
                     events.publish(&NotificationEvent::NotificationFailed {
                         notification_id, event_id, reason: rej.code.clone(),
                     });
@@ -252,6 +266,10 @@ impl NotificationWriteService {
             DeliveryOutcome::Undelivered(reason) => ("undelivered", Some(reason.clone())),
         };
         let mut tx = self.pool.begin().await?;
+        // Correlated by `message_id` alone — this verb has NO company of its own, so it binds the AMBIENT
+        // scope. The CALLER (the receipt consumer) MUST wrap this in
+        // `with_company_scope(Some(event.company_id))` from the communication receipt it is reacting to.
+        company_scope::bind_current_company(&mut tx).await?;
         let row = sqlx::query(
             r#"UPDATE notification.notifications
                SET status=$2::notification_status, failure_reason=COALESCE($3, failure_reason)
@@ -285,25 +303,25 @@ impl NotificationWriteService {
         Ok(true)
     }
 
+    /// ID-only — rides the caller's company scope (every call site wraps in `with_company_scope`).
     async fn mark_sent(&self, notification_id: Uuid, message_id: Uuid) -> Result<(), NotifyError> {
-        sqlx::query(
+        let upd_q = sqlx::query(
             r#"UPDATE notification.notifications SET status='sent'::notification_status, message_id=$2
                WHERE id=$1 AND status='pending'::notification_status"#,
         )
-        .bind(notification_id).bind(message_id)
-        .execute(&self.pool)
-        .await?;
+        .bind(notification_id).bind(message_id);
+        company_scope::execute_scoped(&self.pool, upd_q).await?;
         Ok(())
     }
 
+    /// ID-only — rides the caller's company scope (every call site wraps in `with_company_scope`).
     async fn mark_failed(&self, notification_id: Uuid, reason: &str) -> Result<(), NotifyError> {
-        sqlx::query(
+        let upd_q = sqlx::query(
             r#"UPDATE notification.notifications SET status='failed'::notification_status, failure_reason=$2
                WHERE id=$1 AND status='pending'::notification_status"#,
         )
-        .bind(notification_id).bind(reason)
-        .execute(&self.pool)
-        .await?;
+        .bind(notification_id).bind(reason);
+        company_scope::execute_scoped(&self.pool, upd_q).await?;
         Ok(())
     }
 }
