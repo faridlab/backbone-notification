@@ -24,4 +24,8 @@ pub use backbone_orm::repository::{
 
 // Re-export custom persistence types
 // <<< CUSTOM
+// The hand-written notification SQL's parameter/projection types (see both repositories, declared
+// `user_owned` in metaphor.codegen.yaml).
+pub use notification_repository::{DeliveredRow, NewNotificationRow, PendingNotificationRow};
+pub use notification_template_repository::{ActiveTemplateRow, NewTemplateRow};
 // END CUSTOM

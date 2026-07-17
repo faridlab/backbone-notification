@@ -14,6 +14,12 @@ user_owned:
   - "src/application/service/notification_events.rs"
   - "src/application/service/notification_ports.rs"
   - "src/application/service/notification_write_service.rs"
+  # Own the hand-written notification SQL (the template definition + active-template resolve, the
+  # per-recipient dedup claim, the sent/failed transitions, the stranded-pending sweep, the delivery
+  # receipt) that the write service orchestrates. Declared here — not renamed with a `_custom` suffix —
+  # so the generator skips them wholesale; this declaration is what makes editing them legitimate.
+  - "src/infrastructure/persistence/notification_repository.rs"
+  - "src/infrastructure/persistence/notification_template_repository.rs"
   - "tests/delivery_state_outbox_durability.rs"
   - "tests/integrity_probes.rs"
   - "tests/notification_communication_seam.rs"
