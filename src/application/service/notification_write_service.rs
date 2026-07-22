@@ -270,10 +270,16 @@ impl NotificationWriteService {
         };
         // Stage the delivery-state event durably in the same tx as the status transition (outbox rollout
         // plan, P2): a consumer escalates on it, so a crash before the in-proc publish must not drop it.
+        let payload = serde_json::to_value(&event).map_err(|e| NotifyError::Invalid(e.to_string()))?;
+        let company_id: Uuid = payload
+            .get("company_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| NotifyError::Invalid("notification event missing company_id".into()))?
+            .parse()
+            .map_err(|e| NotifyError::Invalid(format!("company_id parse: {e}")))?;
         let record = backbone_outbox::OutboxRecord::new(
             match &event { NotificationEvent::NotificationUndelivered { .. } => "NotificationUndelivered", _ => "NotificationDelivered" },
-            "Notification", notification_id.to_string(),
-            serde_json::to_value(&event).map_err(|e| NotifyError::Invalid(e.to_string()))?,
+            "Notification", notification_id.to_string(), company_id, payload,
             chrono::Utc::now(),
         );
         backbone_outbox::outbox::stage(&mut *tx, "notification", &record)
