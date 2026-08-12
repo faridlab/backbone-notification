@@ -72,6 +72,9 @@ pub struct PendingNotificationRow {
 pub struct DeliveredRow {
     pub id: Uuid,
     pub event_id: Uuid,
+    /// The notification's own tenant — the authoritative company for the outbox row staged alongside
+    /// the transition. Read off the row (not the event payload, which carries no tenant).
+    pub company_id: Uuid,
 }
 
 /// Hand-written Notification SQL. Lives here (not in the write service) per the module's 4-layer rule:
@@ -145,6 +148,43 @@ impl NotificationRepository {
         Ok(())
     }
 
+    /// In-transaction `mark_sent`: runs the same state-guarded `pending → sent` UPDATE, but on the
+    /// CALLER's connection so the transition and the outbox stage commit as one unit. The caller MUST
+    /// have bound the company onto the tx first (`company_scope::bind_company_on`); we do not re-bind
+    /// here. Use this (not [`Self::mark_sent`]) when staging the lifecycle event to the outbox in-tx.
+    pub async fn mark_sent_in_tx(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        notification_id: Uuid,
+        message_id: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE notification.notifications SET status='sent'::notification_status, message_id=$2
+               WHERE id=$1 AND status='pending'::notification_status"#,
+        )
+        .bind(notification_id).bind(message_id)
+        .execute(conn)
+        .await?;
+        Ok(())
+    }
+
+    /// In-transaction `mark_failed`: the `pending → failed` counterpart of [`Self::mark_sent_in_tx`].
+    pub async fn mark_failed_in_tx(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        notification_id: Uuid,
+        reason: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"UPDATE notification.notifications SET status='failed'::notification_status, failure_reason=$2
+               WHERE id=$1 AND status='pending'::notification_status"#,
+        )
+        .bind(notification_id).bind(reason)
+        .execute(conn)
+        .await?;
+        Ok(())
+    }
+
     /// The oldest notifications stranded in `pending` — what the re-drive sweep re-dispatches.
     ///
     /// The sweep carries no company of its own — it reads under the AMBIENT scope, so the CALLER (the
@@ -202,12 +242,16 @@ impl NotificationRepository {
             r#"UPDATE notification.notifications
                SET status=$2::notification_status, failure_reason=COALESCE($3, failure_reason)
                WHERE message_id=$1 AND status='sent'::notification_status
-               RETURNING id, event_id"#,
+               RETURNING id, event_id, company_id"#,
         )
         .bind(message_id).bind(status).bind(reason)
         .fetch_optional(conn)
         .await?;
-        Ok(row.map(|r| DeliveredRow { id: r.get("id"), event_id: r.get("event_id") }))
+        Ok(row.map(|r| DeliveredRow {
+            id: r.get("id"),
+            event_id: r.get("event_id"),
+            company_id: r.get("company_id"),
+        }))
     }
 }
 

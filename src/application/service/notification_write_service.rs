@@ -192,20 +192,12 @@ impl NotificationWriteService {
             };
             match port.dispatch(&req).await {
                 Ok(ack) => {
-                    company_scope::with_company_scope(
-                        Some(ev.company_id), self.notifications.mark_sent(&self.pool, notification_id, ack.message_id)).await?;
+                    self.commit_dispatched(ev.company_id, notification_id, ev.event_id, ack.message_id, events).await?;
                     outcome.dispatched += 1;
-                    events.publish(&NotificationEvent::NotificationDispatched {
-                        notification_id, event_id: ev.event_id, message_id: ack.message_id,
-                    });
                 }
                 Err(rej) => {
-                    company_scope::with_company_scope(
-                        Some(ev.company_id), self.notifications.mark_failed(&self.pool, notification_id, &rej.message)).await?;
+                    self.commit_failed(ev.company_id, notification_id, ev.event_id, &rej, events).await?;
                     outcome.failed += 1;
-                    events.publish(&NotificationEvent::NotificationFailed {
-                        notification_id, event_id: ev.event_id, reason: rej.code.clone(),
-                    });
                 }
             }
         }
@@ -243,19 +235,11 @@ impl NotificationWriteService {
             };
             match port.dispatch(&req).await {
                 Ok(ack) => {
-                    company_scope::with_company_scope(
-                        Some(row_company), self.notifications.mark_sent(&self.pool, notification_id, ack.message_id)).await?;
+                    self.commit_dispatched(row_company, notification_id, event_id, ack.message_id, events).await?;
                     dispatched += 1;
-                    events.publish(&NotificationEvent::NotificationDispatched {
-                        notification_id, event_id, message_id: ack.message_id,
-                    });
                 }
                 Err(rej) => {
-                    company_scope::with_company_scope(
-                        Some(row_company), self.notifications.mark_failed(&self.pool, notification_id, &rej.message)).await?;
-                    events.publish(&NotificationEvent::NotificationFailed {
-                        notification_id, event_id, reason: rej.code.clone(),
-                    });
+                    self.commit_failed(row_company, notification_id, event_id, &rej, events).await?;
                 }
             }
         }
@@ -279,8 +263,8 @@ impl NotificationWriteService {
             DeliveryOutcome::Undelivered(reason) => ("undelivered", Some(reason.clone())),
         };
         let mut tx = self.pool.begin().await?;
-        // Correlated by `message_id` alone — this verb has NO company of its own, so it binds the AMBIENT
-        // scope. The CALLER (the receipt consumer) MUST wrap this in
+        // Correlated by `message_id` alone — this verb has NO company of its own, so the UPDATE binds
+        // the AMBIENT scope. The CALLER (the receipt consumer) MUST wrap this in
         // `with_company_scope(Some(event.company_id))` from the communication receipt it is reacting to.
         company_scope::bind_current_company(&mut tx).await?;
         let row = self.notifications
@@ -289,31 +273,67 @@ impl NotificationWriteService {
         let Some(row) = row else { tx.rollback().await?; return Ok(false) };
         let notification_id = row.id;
         let event_id = row.event_id;
+        // The notification's own tenant — read off the row (the authoritative source), never off the
+        // event payload (a NotificationEvent carries no company_id; the prior extraction always failed).
+        let company_id = row.company_id;
         let event = match outcome {
             DeliveryOutcome::Delivered =>
                 NotificationEvent::NotificationDelivered { notification_id, event_id },
             DeliveryOutcome::Undelivered(reason) =>
                 NotificationEvent::NotificationUndelivered { notification_id, event_id, reason },
         };
-        // Stage the delivery-state event durably in the same tx as the status transition (outbox rollout
-        // plan, P2): a consumer escalates on it, so a crash before the in-proc publish must not drop it.
-        let payload = serde_json::to_value(&event).map_err(|e| NotifyError::Invalid(e.to_string()))?;
-        let company_id: Uuid = payload
-            .get("company_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| NotifyError::Invalid("notification event missing company_id".into()))?
-            .parse()
-            .map_err(|e| NotifyError::Invalid(format!("company_id parse: {e}")))?;
-        let record = backbone_outbox::OutboxRecord::new(
-            match &event { NotificationEvent::NotificationUndelivered { .. } => "NotificationUndelivered", _ => "NotificationDelivered" },
-            "Notification", notification_id.to_string(), company_id, payload,
-            chrono::Utc::now(),
-        );
-        backbone_outbox::outbox::stage(&mut *tx, "notification", &record)
-            .await.map_err(|e| NotifyError::Invalid(format!("outbox stage: {e}")))?;
+        // Stage the delivery-state event durably in the same tx as the status transition: a consumer
+        // escalates on it, so a crash before the in-proc publish must not drop it.
+        stage_lifecycle_event(&mut tx, company_id, &event).await?;
         tx.commit().await?;
         events.publish(&event);
         Ok(true)
+    }
+
+    /// `pending → sent` and stage `NotificationDispatched` to the outbox in ONE tx, then publish
+    /// in-process. The transition and the event land atomically, so a crash between them cannot drop
+    /// the dispatch signal a downstream consumer escalates on (the durability gap the maturity council
+    /// flagged for `notify`/`dispatch_pending`). The company is bound EXPLICITLY off the known tenant —
+    /// no ambient-scope dependency, correct for the event-subscriber/job callers that drive this engine.
+    async fn commit_dispatched(
+        &self,
+        company_id: Uuid,
+        notification_id: Uuid,
+        event_id: Uuid,
+        message_id: Uuid,
+        events: &dyn NotificationEventSink,
+    ) -> Result<(), NotifyError> {
+        let event = NotificationEvent::NotificationDispatched { notification_id, event_id, message_id };
+        let mut tx = self.pool.begin().await?;
+        company_scope::bind_company_on(&mut tx, company_id).await?;
+        self.notifications.mark_sent_in_tx(&mut tx, notification_id, message_id).await?;
+        stage_lifecycle_event(&mut tx, company_id, &event).await?;
+        tx.commit().await?;
+        events.publish(&event);
+        Ok(())
+    }
+
+    /// `pending → failed` and stage `NotificationFailed` to the outbox in ONE tx, then publish
+    /// in-process. The stored `failure_reason` is the human `message`; the event's `reason` is the
+    /// stable `code` (preserving the prior split). See [`Self::commit_dispatched`] for the tx rationale.
+    async fn commit_failed(
+        &self,
+        company_id: Uuid,
+        notification_id: Uuid,
+        event_id: Uuid,
+        rej: &DispatchRejected,
+        events: &dyn NotificationEventSink,
+    ) -> Result<(), NotifyError> {
+        let event = NotificationEvent::NotificationFailed {
+            notification_id, event_id, reason: rej.code.clone(),
+        };
+        let mut tx = self.pool.begin().await?;
+        company_scope::bind_company_on(&mut tx, company_id).await?;
+        self.notifications.mark_failed_in_tx(&mut tx, notification_id, &rej.message).await?;
+        stage_lifecycle_event(&mut tx, company_id, &event).await?;
+        tx.commit().await?;
+        events.publish(&event);
+        Ok(())
     }
 
 }
@@ -382,6 +402,44 @@ fn normalize_recipient_address(channel: &str, raw: &str) -> String {
         return String::new();
     }
     out
+}
+
+/// Stage a notification lifecycle event to the outbox on the caller's open transaction, in-tx with
+/// the status transition that produced it — so a crash between the write and the in-process publish
+/// cannot drop the event.
+///
+/// `company_id` is the notification's own tenant, passed EXPLICITLY. A `NotificationEvent` is a terminal
+/// observability signal and carries NO tenant in its payload, so the company must never be read back out
+/// of the serialized event (`record_delivery` once did that and the staging always failed).
+async fn stage_lifecycle_event(
+    conn: &mut sqlx::PgConnection,
+    company_id: Uuid,
+    event: &NotificationEvent,
+) -> Result<(), NotifyError> {
+    let payload = serde_json::to_value(event)
+        .map_err(|e| NotifyError::Invalid(format!("event serialize: {e}")))?;
+    let (event_type, notification_id) = match event {
+        NotificationEvent::NotificationDispatched { notification_id, .. } =>
+            ("NotificationDispatched", *notification_id),
+        NotificationEvent::NotificationFailed { notification_id, .. } =>
+            ("NotificationFailed", *notification_id),
+        NotificationEvent::NotificationDelivered { notification_id, .. } =>
+            ("NotificationDelivered", *notification_id),
+        NotificationEvent::NotificationUndelivered { notification_id, .. } =>
+            ("NotificationUndelivered", *notification_id),
+    };
+    let record = backbone_outbox::OutboxRecord::new(
+        event_type,
+        "Notification",
+        notification_id.to_string(),
+        company_id,
+        payload,
+        chrono::Utc::now(),
+    );
+    backbone_outbox::outbox::stage(conn, "notification", &record)
+        .await
+        .map_err(|e| NotifyError::Invalid(format!("outbox stage: {e}")))?;
+    Ok(())
 }
 
 #[cfg(test)]
