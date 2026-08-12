@@ -234,6 +234,9 @@ impl backbone_orm::EntityRepoMeta for NotificationTemplate {
     fn search_fields() -> &'static [&'static str] {
         &["event_type", "name", "body_template"]
     }
+    fn company_field() -> Option<&'static str> {
+        Some("company_id")
+    }
 }
 
 /// Builder for NotificationTemplate entity

@@ -24,6 +24,11 @@ config:
       - grpc
       - proto
       - openapi
+      # API-versioning stack and the event-sourcing store have no consumer in-tree and were
+      # never wired into the module tree (no `pub mod` declaration, zero references). Kept
+      # disabled so regen cannot recreate them; the orphaned files are removed in-tree.
+      - versioning
+      - event_store
 
 # External imports - reuse sapiens for user identity (same pattern as bersihir)
 external_imports:

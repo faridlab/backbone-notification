@@ -8,7 +8,7 @@
 //! ## Usage from other modules
 //!
 //! ```text
-//! use notification::exports::{NotificationDto, NotificationQueryService};
+//! use notification::exports::{NotificationDto};
 //! ```
 
 mod types;
@@ -33,9 +33,6 @@ pub use events::*;
 /// - `NotificationTemplateDto` - Data transfer object for NotificationTemplate
 /// - `NotificationTemplateSummary` - Summary view of NotificationTemplate
 /// - `NotificationTemplateId` - Type-safe ID wrapper
-///
-/// ## Public Services
-/// - `NotificationQueryService` - Read-only queries
 ///
 /// ## Public Events
 /// - `NotificationCreatedEvent` - Published when Notification is created
