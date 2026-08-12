@@ -150,7 +150,12 @@ impl NotificationWriteService {
         };
 
         for r in &ev.recipients {
-            if r.address.trim().is_empty() {
+            // Canonicalize the address BEFORE the dedup claim, so two spellings of the same
+            // recipient (`+62 812-345` vs `+62812345`, `User@Foo.com` vs `user@foo.com`) collapse
+            // onto one idempotency key instead of double-notifying. The normalized form is what we
+            // store AND dispatch. See `normalize_recipient_address`.
+            let address = normalize_recipient_address(&ev.channel, &r.address);
+            if address.is_empty() {
                 return Err(NotifyError::Invalid("recipient needs an address".into()));
             }
             let subject = template.subject_template.as_ref().map(|s| render(s, &ev.data));
@@ -167,7 +172,7 @@ impl NotificationWriteService {
                     template_id: template.id,
                     channel: &ev.channel,
                     recipient_party_id: r.party_id,
-                    recipient_address: &r.address,
+                    recipient_address: &address,
                     subject: subject.as_ref(),
                     body: &body,
                 }),
@@ -182,7 +187,7 @@ impl NotificationWriteService {
             let req = DispatchRequest {
                 idempotency_key: notification_id.to_string(),
                 company_id: ev.company_id, channel: ev.channel.clone(),
-                recipient_party_id: r.party_id, recipient_address: r.address.clone(),
+                recipient_party_id: r.party_id, recipient_address: address.clone(),
                 subject: subject.clone(), body: body.clone(),
             };
             match port.dispatch(&req).await {
@@ -339,5 +344,85 @@ fn json_scalar(v: &serde_json::Value) -> String {
         serde_json::Value::String(s) => s.clone(),
         serde_json::Value::Null => String::new(),
         other => other.to_string(),
+    }
+}
+
+/// Canonicalize a recipient address to its dedup key, by channel.
+///
+/// The idempotency unique index sits on `(event_id, recipient_address)`, so without a canonical form
+/// the same human typed two ways (`+62 812-345` vs `+62812-345`, `User@Foo.com` vs `user@foo.com`)
+/// records TWO rows and double-sends. This collapses those spellings:
+///
+/// - **email**: trim + ASCII-lowercase. `@` and `.` are structural to an address's identity and are
+///   never stripped (`a@b.com` must not collide with `ab.com`).
+/// - **sms / whatsapp / any phone channel**: keep only an optional leading `+` and the digits,
+///   dropping spaces, dashes, parens, etc. → `+62 (812) 345-6789` becomes `+628123456789`.
+///
+/// Phone normalization is INTENTIONALLY limited to format stripping. It does NOT insert or guess a
+/// country code: turning a national number (`0812 345`) into international form needs a locale the
+/// engine does not own, and the deterministic in-module norm exists precisely to avoid that
+/// ambiguity (and a new dependency). Callers MUST supply the international form (`+<country><number>`)
+/// as the contract; two numbers differing only in national-vs-international form will NOT collapse,
+/// and that is the accepted trade. Returns empty for all-punctuation/no-digit input (rejected upstream).
+fn normalize_recipient_address(channel: &str, raw: &str) -> String {
+    let trimmed = raw.trim();
+    if channel.eq_ignore_ascii_case("email") {
+        return trimmed.to_ascii_lowercase();
+    }
+    // Phone-like channel: optional leading '+' then digits only.
+    let mut out = String::with_capacity(trimmed.len());
+    let mut rest = trimmed;
+    if let Some(after_plus) = rest.strip_prefix('+') {
+        out.push('+');
+        rest = after_plus;
+    }
+    out.extend(rest.chars().filter(|c| c.is_ascii_digit()));
+    // Lone `+` (plus pushed, no digits) or all-punctuation input is not a real address.
+    if out.len() <= 1 {
+        return String::new();
+    }
+    out
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    use super::normalize_recipient_address;
+
+    #[test]
+    fn phone_strips_formatting_to_canonical() {
+        // The leak the council flagged: two spellings of one recipient must collapse.
+        assert_eq!(normalize_recipient_address("whatsapp", "+62 812-345"), "+62812345");
+        assert_eq!(normalize_recipient_address("sms", "+62 (812) 345-6789"), "+628123456789");
+        assert_eq!(normalize_recipient_address("whatsapp", " +62 812-345 "), "+62812345");
+        assert_eq!(normalize_recipient_address("sms", "+62812345"), "+62812345"); // idempotent on clean
+    }
+
+    #[test]
+    fn phone_two_spellings_collide() {
+        let a = normalize_recipient_address("whatsapp", "+62 812-345");
+        let b = normalize_recipient_address("whatsapp", "+62812345");
+        assert_eq!(a, b, "the whole point: same key, no double-notify");
+    }
+
+    #[test]
+    fn email_lowercases_and_keeps_structure() {
+        assert_eq!(normalize_recipient_address("email", "User@Foo.COM"), "user@foo.com");
+        assert_eq!(normalize_recipient_address("email", " user@foo.com "), "user@foo.com");
+        // `@` and `.` are structural — must NOT be stripped into a collision.
+        assert_ne!(normalize_recipient_address("email", "a@b.com"), normalize_recipient_address("email", "ab.com"));
+    }
+
+    #[test]
+    fn national_form_does_not_collapse_to_international() {
+        // Documented contract: we strip format only; we do not guess a country code.
+        assert_ne!(normalize_recipient_address("sms", "0812 345"), normalize_recipient_address("sms", "+62812345"));
+    }
+
+    #[test]
+    fn garbage_is_rejected_as_empty() {
+        assert_eq!(normalize_recipient_address("sms", "  "), "");
+        assert_eq!(normalize_recipient_address("whatsapp", "+"), "");
+        assert_eq!(normalize_recipient_address("sms", "+ - ()"), "");
+        assert_eq!(normalize_recipient_address("email", "   "), "");
     }
 }
