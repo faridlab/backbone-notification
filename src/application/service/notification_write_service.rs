@@ -10,12 +10,30 @@ use backbone_orm::company_scope;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::domain::entity::{Notification, NotificationTemplate};
 use crate::infrastructure::persistence::{
     NewNotificationRow, NewTemplateRow, NotificationRepository, NotificationTemplateRepository,
 };
 
 use super::notification_events::*;
 use super::notification_ports::*;
+
+/// Assert both entities expose a `company_field()` so the multi-tenant scope fence is wired.
+/// Called from [`NotificationWriteService::new`] — a `None` would make `backbone_orm::company_scope`
+/// degrade silently into unscoped queries (cross-tenant leak); refuse to build instead.
+fn assert_tenant_fence_wired() {
+    use backbone_orm::EntityRepoMeta;
+    assert!(
+        Notification::company_field().is_some(),
+        "Notification::company_field() is None — tenant isolation unwired; refusing to build \
+         NotificationWriteService (a scoped write would run without a company fence → cross-tenant leak)"
+    );
+    assert!(
+        NotificationTemplate::company_field().is_some(),
+        "NotificationTemplate::company_field() is None — tenant isolation unwired; refusing to \
+         build NotificationWriteService"
+    );
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum NotifyError {
@@ -72,6 +90,10 @@ pub struct NotificationWriteService {
 
 impl NotificationWriteService {
     pub fn new(pool: PgPool) -> Self {
+        // Fail loud at wiring time: see `assert_tenant_fence_wired`. If a schema/codegen change
+        // ever drops the entities' `company_field()`, the scope helpers would fence on nothing.
+        assert_tenant_fence_wired();
+
         let templates = NotificationTemplateRepository::new(pool.clone());
         let notifications = NotificationRepository::new(pool.clone());
         Self { pool, templates, notifications }
