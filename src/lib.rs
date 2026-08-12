@@ -23,6 +23,7 @@ pub mod infrastructure;
 pub mod application;
 pub mod presentation;
 pub mod seeders;
+pub mod exports;
 
 // Re-exports for convenience - Domain entities
 pub use domain::entity::*;
@@ -51,8 +52,14 @@ use sqlx::PgPool;
 /// let router = notification.all_crud_routes();
 /// ```
 pub struct NotificationModule {
-    pub notification_service: Arc<NotificationService>,
-    pub notification_template_service: Arc<NotificationTemplateService>,
+    pub(crate) notification_service: Arc<NotificationService>,
+    pub(crate) notification_template_service: Arc<NotificationTemplateService>,
+    // <<< CUSTOM FIELDS
+    /// The validated write engine — idempotent fan-out, template render, dispatch through
+    /// `CommunicationPort`. This delivers the module's stated purpose; the two CRUD services
+    /// above are convenience scaffolding (see `readonly_routes` / `guarded_routes`).
+    pub(crate) write_service: Arc<application::service::NotificationWriteService>,
+    // END CUSTOM
 }
 
 impl NotificationModule {
@@ -82,10 +89,52 @@ impl NotificationModule {
     /// mount exposes unguarded writes. Compose a guarded router (read + validated
     /// writes) for production, or call `all_crud_routes()` to opt into the full
     /// unguarded surface explicitly.
-    #[deprecated(note = "mounts unvalidated generic CRUD on every entity; compose a guarded router for production, or call all_crud_routes() for the intentional full/unguarded surface")]
+    #[deprecated(note = "mounts unvalidated generic CRUD; prefer readonly_routes() + validated writes, or all_crud_routes() for the full/unguarded surface")]
     pub fn routes(&self) -> Router {
         self.all_crud_routes()
     }
+
+    /// Read-only routes for every entity (GET endpoints only) — the safe base.
+    ///
+    /// Generic mutation can't reach here, so this surface cannot bypass a
+    /// validated write service's invariants. Use this as the production base and
+    /// merge validated write routes (or a write service's HTTP layer) onto it.
+    pub fn readonly_routes(&self) -> Router {
+        use presentation::http::{
+            create_notification_read_routes,
+            create_notification_template_read_routes,
+        };
+
+        Router::new()
+            .merge(create_notification_read_routes(self.notification_service.clone()))
+            .merge(create_notification_template_read_routes(self.notification_template_service.clone()))
+    }
+
+    // <<< CUSTOM METHODS
+    /// The validated notification engine (idempotent fan-out → render → dispatch).
+    ///
+    /// A composing service drives this from its domain-event subscriptions, passing a
+    /// `CommunicationPort` impl over backbone-communication. Generic CRUD on a `Notification`
+    /// row bypasses the dedup invariant — use THIS, not the write routes.
+    pub fn write_service(&self) -> Arc<application::service::NotificationWriteService> {
+        self.write_service.clone()
+    }
+
+    /// The recommended production surface: `Notification` **read-only** (a Notification is a
+    /// derived, append-only record — never hand-created) + `NotificationTemplate` full CRUD
+    /// (a template IS master data). `Notification` writes go through [`Self::write_service`]
+    /// only. `all_crud_routes()` exposes unguarded writes and is for trusted/admin/seeding.
+    pub fn guarded_routes(&self) -> Router {
+        use presentation::http::{
+            create_notification_read_routes,
+            create_notification_template_routes,
+        };
+
+        Router::new()
+            .merge(create_notification_read_routes(self.notification_service.clone()))
+            .merge(create_notification_template_routes(self.notification_template_service.clone()))
+    }
+    // END CUSTOM
 }
 
 /// Builder for NotificationModule
@@ -124,12 +173,17 @@ impl NotificationModuleBuilder {
         let notification_template_service = Arc::new(NotificationTemplateService::with_repository(notification_template_repository.clone()));
 
         // <<< CUSTOM
+        // The validated write engine. Self-constructs from the pool; CommunicationPort and
+        // NotificationEventSink stay per-call (the composing service's concern). Construction
+        // asserts both entities expose company_field() so the tenant fence is wired (see new()).
+        let write_service = Arc::new(application::service::NotificationWriteService::new(db_pool.clone()));
         // END CUSTOM
 
         Ok(NotificationModule {
             notification_service,
             notification_template_service,
             // <<< CUSTOM
+            write_service,
             // END CUSTOM
         })
     }
