@@ -20,6 +20,9 @@ user_owned:
   # so the generator skips them wholesale; this declaration is what makes editing them legitimate.
   - "src/infrastructure/persistence/notification_repository.rs"
   - "src/infrastructure/persistence/notification_template_repository.rs"
+  # Gateway transport adapter (promoted from backbone-messaging-app) — the
+  # queue-backed CommunicationPort over backbone-mail (`gateway-queue` feature).
+  - "src/infrastructure/gateway/**"
   - "tests/delivery_state_outbox_durability.rs"
   - "tests/integrity_probes.rs"
   - "tests/notification_communication_seam.rs"
