@@ -20,7 +20,7 @@ backbone-messaging = { git = "https://github.com/faridlab/backbone-framework", b
 # the `gateway-queue` feature; without it this module ships no transport. NOTE:
 # backbone-mail pins its framework deps at tags while this module tracks main — a
 # consumer MUST [patch] both to one checkout (composing apps' Cargo.tomls do).
-backbone-mail = { git = "https://github.com/faridlab/backbone-mail", tag = "v0.2.1", optional = true }
+backbone-mail = { git = "https://github.com/faridlab/backbone-mail", tag = "v0.2.2", optional = true }
 
 # Core dependencies
 tokio = { version = "1.0", features = ["full"] }

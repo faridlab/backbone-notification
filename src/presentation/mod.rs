@@ -6,4 +6,6 @@ pub mod dto;
 pub mod http;
 
 // <<< CUSTOM
+#[cfg(feature = "gateway-queue")]
+pub mod middleware;
 // END CUSTOM

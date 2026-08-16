@@ -23,6 +23,10 @@ user_owned:
   # Gateway transport adapter (promoted from backbone-messaging-app) — the
   # queue-backed CommunicationPort over backbone-mail (`gateway-queue` feature).
   - "src/infrastructure/gateway/**"
+  # The notification gate middleware (`gateway-queue` feature) — promoted
+  # from backbone-messaging-app: admin gate + sentinel-company scope for
+  # fence-none apps composing this fenced module.
+  - "src/presentation/middleware/**"
   - "tests/delivery_state_outbox_durability.rs"
   - "tests/integrity_probes.rs"
   - "tests/notification_communication_seam.rs"

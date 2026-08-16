@@ -1044,7 +1044,7 @@ dependencies = [
 [[package]]
 name = "backbone-mail"
 version = "0.2.0"
-source = "git+https://github.com/faridlab/backbone-mail?tag=v0.2.1#991badb35c4b4fd73abeacf73ccc19921d3cc36c"
+source = "git+https://github.com/faridlab/backbone-mail?tag=v0.2.2#6c61e268fc5b0b5c1e618b3edf32111b2a8f475c"
 dependencies = [
  "anyhow",
  "async-trait",
