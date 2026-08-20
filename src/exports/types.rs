@@ -120,7 +120,7 @@ pub struct NotificationTemplateDto {
     pub name: String,
     pub subject_template: Option<String>,
     pub body_template: String,
-    pub is_active: bool,
+    pub status: NotificationTemplateStatus,
     pub metadata: serde_json::Value,
 }
 
@@ -129,6 +129,7 @@ pub struct NotificationTemplateDto {
 pub struct NotificationTemplateSummary {
     pub id: NotificationTemplateId,
     pub name: String,
+    pub status: NotificationTemplateStatus,
 }
 
 /// Reference to NotificationTemplate for foreign key relationships

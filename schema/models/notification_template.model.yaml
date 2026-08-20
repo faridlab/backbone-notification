@@ -40,9 +40,9 @@ models:
         type: string
         attributes: ["@required", "@length(max=4000)"]
         description: "Body template; supports {{placeholders}} substituted from the event data"
-      is_active:
-        type: boolean
-        attributes: ["@default(true)"]
+      status:
+        type: NotificationTemplateStatus
+        attributes: ["@default(active)"]
         description: "Only active templates are matched"
       metadata:
         type: Metadata
@@ -53,6 +53,15 @@ models:
         fields: [company_id, event_type, channel]
 
 enums:
+  - name: NotificationTemplateStatus
+    description: "Lifecycle of a notification template"
+    variants:
+      - name: active
+        description: "Eligible for matching when a notification is dispatched"
+        default: true
+      - name: inactive
+        description: "Retired; dispatch falls through to the channel default or fails loudly"
+
   - name: NotifChannel
     description: "A dispatch channel (mirrors communication's channels)"
     variants:

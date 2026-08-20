@@ -19,6 +19,7 @@ use validator::Validate;
 use crate::domain::entity::NotificationTemplate;
 use crate::domain::entity::AuditMetadata;
 use crate::domain::entity::NotifChannel;
+use crate::domain::entity::NotificationTemplateStatus;
 
 // =============================================================================
 // Create DTO
@@ -47,9 +48,7 @@ pub struct CreateNotificationTemplateDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(alias = "body_template")]
     pub body_template: String,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(alias = "is_active")]
-    pub is_active: bool,
+    pub status: NotificationTemplateStatus,
 }
 
 // =============================================================================
@@ -79,9 +78,7 @@ pub struct UpdateNotificationTemplateDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(alias = "body_template")]
     pub body_template: String,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(alias = "is_active")]
-    pub is_active: bool,
+    pub status: NotificationTemplateStatus,
 }
 
 // =============================================================================
@@ -113,15 +110,14 @@ pub struct PatchNotificationTemplateDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "body_template")]
     pub body_template: Option<String>,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "is_active")]
-    pub is_active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<NotificationTemplateStatus>,
 }
 
 impl PatchNotificationTemplateDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.event_type.is_some() || self.channel.is_some() || self.name.is_some() || self.subject_template.is_some() || self.body_template.is_some() || self.is_active.is_some()
+        self.company_id.is_some() || self.event_type.is_some() || self.channel.is_some() || self.name.is_some() || self.subject_template.is_some() || self.body_template.is_some() || self.status.is_some()
     }
 }
 
@@ -149,8 +145,7 @@ pub struct NotificationTemplateResponseDto {
     pub subject_template: Option<String>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub body_template: String,
-    #[cfg_attr(feature = "openapi", schema(example = true))]
-    pub is_active: bool,
+    pub status: NotificationTemplateStatus,
     pub metadata: AuditMetadata,
 }
 
@@ -228,7 +223,7 @@ impl From<NotificationTemplate> for NotificationTemplateResponseDto {
             name: entity.name,
             subject_template: entity.subject_template,
             body_template: entity.body_template,
-            is_active: entity.is_active,
+            status: entity.status,
             metadata: entity.metadata,
         }
     }
@@ -257,7 +252,7 @@ impl From<CreateNotificationTemplateDto> for NotificationTemplate {
             name: dto.name,
             subject_template: dto.subject_template,
             body_template: dto.body_template,
-            is_active: dto.is_active,
+            status: dto.status,
             metadata: AuditMetadata::default(),
         }
     }
@@ -273,7 +268,7 @@ impl From<&NotificationTemplate> for NotificationTemplateResponseDto {
             name: entity.name.clone(),
             subject_template: entity.subject_template.clone(),
             body_template: entity.body_template.clone(),
-            is_active: entity.is_active.clone(),
+            status: entity.status.clone(),
             metadata: entity.metadata.clone(),
         }
     }
@@ -293,7 +288,7 @@ impl backbone_core::ApplyUpdateDto<UpdateNotificationTemplateDto> for Notificati
         self.name = dto.name;
         self.subject_template = dto.subject_template;
         self.body_template = dto.body_template;
-        self.is_active = dto.is_active;
+        self.status = dto.status;
         Ok(self)
     }
 }
@@ -306,4 +301,3 @@ impl backbone_core::ApplyUpdateDto<UpdateNotificationTemplateDto> for Notificati
 // Add custom DTOs specific to NotificationTemplate here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
-

@@ -71,7 +71,7 @@ pub struct Notification {
 impl Notification {
     /// Create a builder for Notification
     pub fn builder() -> NotificationBuilder {
-        NotificationBuilder::default()
+        <NotificationBuilder as Default>::default()
     }
 
     /// Create a new Notification with required fields
@@ -414,7 +414,7 @@ impl NotificationBuilder {
             recipient_address,
             subject: self.subject,
             body,
-            status: self.status.unwrap_or(NotificationStatus::default()),
+            status: self.status.unwrap_or_default(),
             message_id: self.message_id,
             failure_reason: self.failure_reason,
             metadata: AuditMetadata::default(),

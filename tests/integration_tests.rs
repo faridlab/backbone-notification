@@ -37,4 +37,3 @@ async fn test_notification_template_api() {
         panic!("{} tests failed", failed.len());
     }
 }
-

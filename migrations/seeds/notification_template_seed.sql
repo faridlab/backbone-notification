@@ -12,7 +12,7 @@
 --     name,
 --     subject_template,
 --     body_template,
---     is_active,
+--     status,
 --     metadata
 -- ) VALUES
 -- (
@@ -22,7 +22,7 @@
 -- Example: Insert reference data
 -- Uncomment and modify the following:
 
--- INSERT INTO notification.notification_templates (id, code, name, is_active, created_at, updated_at) VALUES
+-- INSERT INTO notification.notification_templates (id, code, name, status, created_at, updated_at) VALUES
 --     (gen_random_uuid(), 'SAMPLE1', 'Sample 1', true, NOW(), NOW()),
 --     (gen_random_uuid(), 'SAMPLE2', 'Sample 2', true, NOW(), NOW());
 

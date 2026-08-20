@@ -185,4 +185,3 @@ pub fn create_protected_notification_template_routes<A: AuthMiddleware + Send + 
             }
         }))
 }
-

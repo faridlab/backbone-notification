@@ -30,7 +30,7 @@ impl TestDataGenerator for NotificationTemplateTestData {
             "name": format!("Test {}", Uuid::new_v4().to_string().split('-').next().unwrap()),
             "subject_template": null,
             "body_template": format!("Test {}", Uuid::new_v4().to_string().split('-').next().unwrap()),
-            "is_active": false,
+            "status": "active",
             "metadata": json!({}),
         })
     }
@@ -45,7 +45,7 @@ impl TestDataGenerator for NotificationTemplateTestData {
             "name": format!("Test {}", Uuid::new_v4().to_string().split('-').next().unwrap()),
             "subject_template": null,
             "body_template": format!("Test {}", Uuid::new_v4().to_string().split('-').next().unwrap()),
-            "is_active": false,
+            "status": "active",
             "metadata": json!({}),
         })
     }

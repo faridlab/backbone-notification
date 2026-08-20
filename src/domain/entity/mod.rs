@@ -5,6 +5,7 @@
 pub mod notification;
 pub mod notification_template;
 pub mod notification_status;
+pub mod notification_template_status;
 pub mod notif_channel;
 
 // Re-exports
@@ -15,6 +16,7 @@ pub use notification_template::NotificationTemplate;
 pub use notification_template::NotificationTemplateBuilder;
 pub use notification_template::NotificationTemplateId;
 pub use notification_status::NotificationStatus;
+pub use notification_template_status::NotificationTemplateStatus;
 pub use notif_channel::NotifChannel;
 
 // ==========================================================================

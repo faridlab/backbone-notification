@@ -4,6 +4,7 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::NotifChannel;
+use super::NotificationTemplateStatus;
 use super::AuditMetadata;
 
 /// Strongly-typed ID for NotificationTemplate
@@ -56,7 +57,7 @@ pub struct NotificationTemplate {
     pub name: String,
     pub subject_template: Option<String>,
     pub body_template: String,
-    pub is_active: bool,
+    pub status: NotificationTemplateStatus,
     #[serde(default)]
     #[sqlx(json)]
     pub metadata: AuditMetadata,
@@ -65,11 +66,11 @@ pub struct NotificationTemplate {
 impl NotificationTemplate {
     /// Create a builder for NotificationTemplate
     pub fn builder() -> NotificationTemplateBuilder {
-        NotificationTemplateBuilder::default()
+        <NotificationTemplateBuilder as Default>::default()
     }
 
     /// Create a new NotificationTemplate with required fields
-    pub fn new(company_id: Uuid, event_type: String, channel: NotifChannel, name: String, body_template: String, is_active: bool) -> Self {
+    pub fn new(company_id: Uuid, event_type: String, channel: NotifChannel, name: String, body_template: String, status: NotificationTemplateStatus) -> Self {
         Self {
             id: Uuid::new_v4(),
             company_id,
@@ -78,7 +79,7 @@ impl NotificationTemplate {
             name,
             subject_template: None,
             body_template,
-            is_active,
+            status,
             metadata: AuditMetadata::default(),
         }
     }
@@ -133,6 +134,11 @@ impl NotificationTemplate {
         self.metadata.deleted_by.as_ref()
     }
 
+    /// Get the current status
+    pub fn status(&self) -> &NotificationTemplateStatus {
+        &self.status
+    }
+
 
     // ==========================================================
     // Fluent Setters (with_* for optional fields)
@@ -170,8 +176,8 @@ impl NotificationTemplate {
                 "body_template" => {
                     if let Ok(v) = serde_json::from_value(value) { self.body_template = v; }
                 }
-                "is_active" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.is_active = v; }
+                "status" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.status = v; }
                 }
                 _ => {} // ignore unknown fields
             }
@@ -229,6 +235,7 @@ impl backbone_orm::EntityRepoMeta for NotificationTemplate {
         m.insert("id".to_string(), "uuid".to_string());
         m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("channel".to_string(), "notif_channel".to_string());
+        m.insert("status".to_string(), "notification_template_status".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
@@ -251,7 +258,7 @@ pub struct NotificationTemplateBuilder {
     name: Option<String>,
     subject_template: Option<String>,
     body_template: Option<String>,
-    is_active: Option<bool>,
+    status: Option<NotificationTemplateStatus>,
 }
 
 impl NotificationTemplateBuilder {
@@ -291,9 +298,9 @@ impl NotificationTemplateBuilder {
         self
     }
 
-    /// Set the is_active field (default: `true`)
-    pub fn is_active(mut self, value: bool) -> Self {
-        self.is_active = Some(value);
+    /// Set the status field (default: `NotificationTemplateStatus::default()`)
+    pub fn status(mut self, value: NotificationTemplateStatus) -> Self {
+        self.status = Some(value);
         self
     }
 
@@ -310,11 +317,11 @@ impl NotificationTemplateBuilder {
             id: Uuid::new_v4(),
             company_id,
             event_type,
-            channel: self.channel.unwrap_or(NotifChannel::default()),
+            channel: self.channel.unwrap_or_default(),
             name,
             subject_template: self.subject_template,
             body_template,
-            is_active: self.is_active.unwrap_or(true),
+            status: self.status.unwrap_or_default(),
             metadata: AuditMetadata::default(),
         })
     }

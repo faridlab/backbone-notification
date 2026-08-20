@@ -80,8 +80,8 @@ impl NotificationTemplateRepository {
             pool,
             sqlx::query(
                 r#"INSERT INTO notification.notification_templates
-                     (id, company_id, event_type, channel, name, subject_template, body_template, is_active)
-                   VALUES ($1,$2,$3,$4::notif_channel,$5,$6,$7,true)"#,
+                     (id, company_id, event_type, channel, name, subject_template, body_template, status)
+                   VALUES ($1,$2,$3,$4::notif_channel,$5,$6,$7,'active')"#,
             )
             .bind(t.id).bind(t.company_id).bind(t.event_type).bind(t.channel).bind(t.name)
             .bind(t.subject_template).bind(t.body_template),
@@ -106,7 +106,7 @@ impl NotificationTemplateRepository {
             pool,
             sqlx::query_as::<_, (Uuid, Option<String>, String)>(
                 r#"SELECT id, subject_template, body_template FROM notification.notification_templates
-                   WHERE company_id=$1 AND event_type=$2 AND channel=$3::notif_channel AND is_active=true
+                   WHERE company_id=$1 AND event_type=$2 AND channel=$3::notif_channel AND status='active'
                      AND (metadata->>'deleted_at') IS NULL
                    LIMIT 1"#,
             )
