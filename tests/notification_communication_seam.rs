@@ -12,6 +12,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 // NSEAM-1 — a notification dispatches as a REAL communication outbound message.
+#[expect(clippy::expect_used, reason = "test harness: a panic here names the assertion failure precisely")]
 #[tokio::test]
 async fn nseam1_notification_lands_real_communication_message() {
     let pool = pool().await;

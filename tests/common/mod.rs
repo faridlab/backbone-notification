@@ -2,6 +2,7 @@
 //! backbone-communication port (dispatches a genuine outbound message through the channel gateway), and a
 //! capturing event sink.
 
+#![expect(clippy::expect_used, reason = "test harness: a panic here names the setup failure precisely")]
 #![allow(dead_code)]
 
 use std::sync::{Arc, Mutex};
