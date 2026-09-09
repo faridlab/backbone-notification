@@ -9,10 +9,10 @@
 //! All standard CRUD methods are available via `Deref`.
 
 use anyhow::Result;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
+use backbone_orm::org_scope;
 
 use crate::domain::entity::NotificationTemplate;
 
@@ -46,7 +46,6 @@ impl NotificationTemplateRepository {
 /// a deserialize panic.
 pub struct NewTemplateRow<'a> {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub event_type: &'a str,
     pub channel: &'a str,
     pub name: &'a str,
@@ -64,57 +63,58 @@ pub struct ActiveTemplateRow {
 /// Hand-written NotificationTemplate SQL. Lives here (not in the write service) per the module's
 /// 4-layer rule: services orchestrate and own the unit of work, repositories hold the SQL.
 impl NotificationTemplateRepository {
-    /// Define the active template for a (company, event_type, channel).
+    /// Define the active template for an (event_type, channel).
     ///
-    /// Runs outside a transaction on the pool via `execute_scoped`; the caller wraps it in
-    /// `with_company_scope(Some(company_id))` so the INSERT passes the WITH CHECK fence (ADR-0008).
+    /// Runs outside a transaction on the pool via `execute_scoped` — transport only: the helper rides
+    /// the request-dedicated connection when one is bound (carrying whatever scope the COMPOSING
+    /// service set), otherwise executes plainly on the pool. The module invents no scope of its own
+    /// (composition-installed tenancy, ADR-0029).
     ///
     /// Returns the raw `sqlx::Error` deliberately: the caller inspects it for a unique violation to turn
-    /// a duplicate event/channel template into a domain error.
+    /// a duplicate event/channel template into a domain error. Module tables carry no such unique
+    /// themselves; a composing service's tenancy decorator may install a per-unit one.
     pub async fn insert_template(
         &self,
         pool: &PgPool,
         t: &NewTemplateRow<'_>,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
+        org_scope::execute_scoped(
             pool,
             sqlx::query(
                 r#"INSERT INTO notification.notification_templates
-                     (id, company_id, event_type, channel, name, subject_template, body_template, status)
-                   VALUES ($1,$2,$3,$4::notif_channel,$5,$6,$7,'active')"#,
+                     (id, event_type, channel, name, subject_template, body_template, status)
+                   VALUES ($1,$2,$3::notif_channel,$4,$5,$6,'active')"#,
             )
-            .bind(t.id).bind(t.company_id).bind(t.event_type).bind(t.channel).bind(t.name)
+            .bind(t.id).bind(t.event_type).bind(t.channel).bind(t.name)
             .bind(t.subject_template).bind(t.body_template),
         )
         .await?;
         Ok(())
     }
 
-    /// Resolve the active template for a (company, event_type, channel). `Ok(None)` = nothing to send
+    /// Resolve the active template for an (event_type, channel). `Ok(None)` = nothing to send
     /// for this event/channel, and the caller records the recipients as skipped.
-    ///
-    /// Caller supplies the company scope (`with_company_scope(Some(company_id))`); the explicit
-    /// `company_id=$1` is defense-in-depth on top of that fence.
     pub async fn find_active(
         &self,
         pool: &PgPool,
-        company_id: Uuid,
         event_type: &str,
         channel: &str,
     ) -> Result<Option<ActiveTemplateRow>, sqlx::Error> {
-        let row = company_scope::fetch_optional_scoped(
+        let row = org_scope::fetch_optional_row_scoped(
             pool,
-            sqlx::query_as::<_, (Uuid, Option<String>, String)>(
+            sqlx::query(
                 r#"SELECT id, subject_template, body_template FROM notification.notification_templates
-                   WHERE company_id=$1 AND event_type=$2 AND channel=$3::notif_channel AND status='active'
+                   WHERE event_type=$1 AND channel=$2::notif_channel AND status='active'
                      AND (metadata->>'deleted_at') IS NULL
                    LIMIT 1"#,
             )
-            .bind(company_id).bind(event_type).bind(channel),
+            .bind(event_type).bind(channel),
         )
         .await?;
-        Ok(row.map(|(id, subject_template, body_template)| ActiveTemplateRow {
-            id, subject_template, body_template,
+        Ok(row.map(|r| ActiveTemplateRow {
+            id: r.get("id"),
+            subject_template: r.get("subject_template"),
+            body_template: r.get("body_template"),
         }))
     }
 }

@@ -1,17 +1,23 @@
 # backbone-notification — FSD
 
 ## Entities
-NotificationTemplate (`company_id`, `event_type`, `channel`, `name`, `subject_template?`, `body_template`,
-`is_active`; unique `(company_id, event_type, channel)`) · Notification (`company_id`, `event_id` logical,
+The module carries no tenant column or fence of its own (composition-installed tenancy, ADR-0029): a
+composing backend-service that wants these tables org-scoped installs `org_unit_id`, the RLS policy, and
+per-unit uniques via its tenancy decorator.
+
+NotificationTemplate (`event_type`, `channel`, `name`, `subject_template?`, `body_template`,
+`status`; no module-level unique — a composing service's decorator may add a per-unit
+`(event_type, channel)` one) · Notification (`event_id` logical,
 `event_type`, `template_id?` logical, `channel`, `recipient_party_id?` logical, `recipient_address`,
 `subject?`, `body`, `status`, `message_id?` logical, `failure_reason?`; unique `(event_id,
-recipient_address)` — the idempotency guard; index `(company_id, status)` — the reaper's scan). Enums:
+recipient_address)` — the idempotency guard). Enums:
 NotifChannel {whatsapp, email, sms}, NotificationStatus {pending, sent, delivered, undelivered, failed,
 skipped} (`sent`=handed to the gateway; `delivered`/`undelivered`=the provider's confirmed outcome;
 `failed`=gateway rejected the hand-off).
 
 ## Write path (`NotificationWriteService`, hand-authored, user-owned)
-- `create_template(NewTemplate)` → the active template for (company, event_type, channel); one per key
+- `create_template(NewTemplate)` → define the active template for an (event_type, channel); replace any
+  existing one for the key
 - `notify(NotifyEvent, &dyn CommunicationPort, &dyn NotificationEventSink)` → resolve template, render per
   recipient, claim the `(event_id, recipient_address)` dedup slot, dispatch, mark sent/failed; returns
   `NotifyOutcome {dispatched, deduped, failed, skipped}`
@@ -21,7 +27,9 @@ skipped} (`sent`=handed to the gateway; `delivered`/`undelivered`=the provider's
   (`sent → delivered | undelivered`), correlated by `message_id`, state-guarded/idempotent
 - `render` → flat `{{placeholder}}` substitution from the event `data`
 
-Errors: `NotifyError {Db, Invalid}`.
+Errors: `NotifyError {Db, Invalid, NoCompanyScope}` — `NoCompanyScope` fires when a lifecycle event must
+be staged to the company-keyed outbox mirror and the ambient org scope carries no company node (the
+mirror's key fails closed rather than being guessed).
 
 ## Seams (ports — zero normal Cargo edge)
 - **Dispatch → communication (proven, NSEAM-1):** the rendered message is handed to backbone-communication

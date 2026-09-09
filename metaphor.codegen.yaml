@@ -23,10 +23,18 @@ user_owned:
   # Gateway transport adapter (promoted from backbone-messaging-app) — the
   # queue-backed CommunicationPort over backbone-mail (`gateway-queue` feature).
   - "src/infrastructure/gateway/**"
-  # The notification gate middleware (`gateway-queue` feature) — promoted
-  # from backbone-messaging-app: admin gate + sentinel-company scope for
-  # fence-none apps composing this fenced module.
+  # Presentation middleware (hand-written). Empty since the tenant-agnostic
+  # strip; kept as a user-owned home for future module-local middleware.
   - "src/presentation/middleware/**"
+  # Hand-authored migration: the guarded strip of the module's company-fence
+  # artifacts. The ordering guard is hand-authored logic, not schema-derived
+  # emission.
+  - "migrations/20260909120000_strip_tenancy.up.sql"
+  - "migrations/20260909120000_strip_tenancy.down.sql"
+  # Seed scaffolding: the seeder generator emits these once at module create and
+  # never rewrites them, so they are maintained by hand from here on.
+  - "migrations/seeds/notification_seed.sql"
+  - "migrations/seeds/notification_template_seed.sql"
   - "tests/delivery_state_outbox_durability.rs"
   - "tests/integrity_probes.rs"
   - "tests/notification_communication_seam.rs"

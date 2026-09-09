@@ -11,7 +11,7 @@ use anyhow::Result;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
-use backbone_orm::company_scope;
+use backbone_orm::org_scope;
 
 use crate::domain::entity::Notification;
 
@@ -45,7 +45,6 @@ impl NotificationRepository {
 /// panic.
 pub struct NewNotificationRow<'a> {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub event_id: Uuid,
     pub event_type: &'a str,
     pub template_id: Uuid,
@@ -60,7 +59,6 @@ pub struct NewNotificationRow<'a> {
 pub struct PendingNotificationRow {
     pub id: Uuid,
     pub event_id: Uuid,
-    pub company_id: Uuid,
     pub channel: String,
     pub recipient_party_id: Option<Uuid>,
     pub recipient_address: String,
@@ -72,9 +70,6 @@ pub struct PendingNotificationRow {
 pub struct DeliveredRow {
     pub id: Uuid,
     pub event_id: Uuid,
-    /// The notification's own tenant — the authoritative company for the outbox row staged alongside
-    /// the transition. Read off the row (not the event payload, which carries no tenant).
-    pub company_id: Uuid,
 }
 
 /// Hand-written Notification SQL. Lives here (not in the write service) per the module's 4-layer rule:
@@ -83,40 +78,41 @@ impl NotificationRepository {
     /// Claim the (event_id, recipient_address) dedup slot. `Ok(None)` = this recipient was already
     /// notified for this event (a redelivered domain event), and the caller counts it as deduped.
     ///
-    /// Runs outside a transaction on the pool via `fetch_optional_scalar_scoped`; the caller wraps it in
-    /// `with_company_scope(Some(company_id))` so the INSERT passes the WITH CHECK fence (ADR-0008).
+    /// Runs outside a transaction on the pool via `fetch_optional_row_scoped` — transport only: the
+    /// helper rides the request-dedicated connection when one is bound (carrying whatever scope the
+    /// COMPOSING service set), otherwise executes plainly on the pool. The module invents no scope of
+    /// its own (composition-installed tenancy, ADR-0029).
     pub async fn claim_recipient(
         &self,
         pool: &PgPool,
         n: &NewNotificationRow<'_>,
     ) -> Result<Option<Uuid>, sqlx::Error> {
-        company_scope::fetch_optional_scalar_scoped(
+        let row = org_scope::fetch_optional_row_scoped(
             pool,
-            sqlx::query_scalar(
+            sqlx::query(
                 r#"INSERT INTO notification.notifications
-                     (id, company_id, event_id, event_type, template_id, channel, recipient_party_id,
+                     (id, event_id, event_type, template_id, channel, recipient_party_id,
                       recipient_address, subject, body, status)
-                   VALUES ($1,$2,$3,$4,$5,$6::notif_channel,$7,$8,$9,$10,'pending'::notification_status)
+                   VALUES ($1,$2,$3,$4,$5::notif_channel,$6,$7,$8,$9,'pending'::notification_status)
                    ON CONFLICT (event_id, recipient_address) DO NOTHING
                    RETURNING id"#,
             )
-            .bind(n.id).bind(n.company_id).bind(n.event_id).bind(n.event_type).bind(n.template_id)
+            .bind(n.id).bind(n.event_id).bind(n.event_type).bind(n.template_id)
             .bind(n.channel).bind(n.recipient_party_id).bind(n.recipient_address)
             .bind(n.subject).bind(n.body),
         )
-        .await
+        .await?;
+        Ok(row.map(|r| r.get("id")))
     }
 
     /// Record a successful dispatch. State-guarded on `pending`.
-    ///
-    /// ID-only — rides the caller's company scope (every call site wraps in `with_company_scope`).
     pub async fn mark_sent(
         &self,
         pool: &PgPool,
         notification_id: Uuid,
         message_id: Uuid,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
+        org_scope::execute_scoped(
             pool,
             sqlx::query(
                 r#"UPDATE notification.notifications SET status='sent'::notification_status, message_id=$2
@@ -128,15 +124,14 @@ impl NotificationRepository {
         Ok(())
     }
 
-    /// Record a dispatch rejection. State-guarded on `pending`. Same ID-only, caller-scoped contract as
-    /// [`Self::mark_sent`].
+    /// Record a dispatch rejection. State-guarded on `pending`. Same contract as [`Self::mark_sent`].
     pub async fn mark_failed(
         &self,
         pool: &PgPool,
         notification_id: Uuid,
         reason: &str,
     ) -> Result<(), sqlx::Error> {
-        company_scope::execute_scoped(
+        org_scope::execute_scoped(
             pool,
             sqlx::query(
                 r#"UPDATE notification.notifications SET status='failed'::notification_status, failure_reason=$2
@@ -149,9 +144,8 @@ impl NotificationRepository {
     }
 
     /// In-transaction `mark_sent`: runs the same state-guarded `pending → sent` UPDATE, but on the
-    /// CALLER's connection so the transition and the outbox stage commit as one unit. The caller MUST
-    /// have bound the company onto the tx first (`company_scope::bind_company_on`); we do not re-bind
-    /// here. Use this (not [`Self::mark_sent`]) when staging the lifecycle event to the outbox in-tx.
+    /// CALLER's connection so the transition and the outbox stage commit as one unit. Use this (not
+    /// [`Self::mark_sent`]) when staging the lifecycle event to the outbox in-tx.
     pub async fn mark_sent_in_tx(
         &self,
         conn: &mut sqlx::PgConnection,
@@ -187,32 +181,36 @@ impl NotificationRepository {
 
     /// The oldest notifications stranded in `pending` — what the re-drive sweep re-dispatches.
     ///
-    /// The sweep carries no company of its own — it reads under the AMBIENT scope, so the CALLER (the
-    /// scheduler) MUST wrap this in `with_company_scope(Some(company))` and drive it once per company;
-    /// otherwise the RLS fence returns nothing and the stranded rows are never re-driven.
+    /// Runs on the module's own short transaction and re-binds the AMBIENT org scope on it when
+    /// one is bound (the multi-row read twin the request-connection executors cover for
+    /// single-row reads): under a composing service's request scope the rows pass the decorator's
+    /// fence on that scope's entitlement union; with no scope bound this reads the plain pool,
+    /// unfenced. The module invents no scope of its own (composition-installed tenancy, ADR-0029).
     pub async fn list_pending(
         &self,
         pool: &PgPool,
         limit: i64,
     ) -> Result<Vec<PendingNotificationRow>, sqlx::Error> {
-        let rows = company_scope::fetch_all_rows_scoped(
-            pool,
-            sqlx::query(
-                r#"SELECT id, event_id, company_id, channel::text AS channel, recipient_party_id,
-                          recipient_address, subject, body
-                   FROM notification.notifications
-                   WHERE status='pending'::notification_status AND (metadata->>'deleted_at') IS NULL
-                   ORDER BY (metadata->>'created_at') NULLS FIRST LIMIT $1"#,
-            )
-            .bind(limit),
+        let mut tx = pool.begin().await?;
+        if let Some(scope) = org_scope::current_org_scope() {
+            org_scope::bind_org_scope_on(&mut tx, &scope).await?;
+        }
+        let rows = sqlx::query(
+            r#"SELECT id, event_id, channel::text AS channel, recipient_party_id,
+                      recipient_address, subject, body
+               FROM notification.notifications
+               WHERE status='pending'::notification_status AND (metadata->>'deleted_at') IS NULL
+               ORDER BY (metadata->>'created_at') NULLS FIRST LIMIT $1"#,
         )
+        .bind(limit)
+        .fetch_all(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(rows
             .iter()
             .map(|r| PendingNotificationRow {
                 id: r.get("id"),
                 event_id: r.get("event_id"),
-                company_id: r.get("company_id"),
                 channel: r.get("channel"),
                 recipient_party_id: r.get("recipient_party_id"),
                 recipient_address: r.get("recipient_address"),
@@ -226,11 +224,7 @@ impl NotificationRepository {
     /// redelivered receipt is a no-op (`Ok(None)`). `status` binds as `&str` and is cast at the DB
     /// (`$2::notification_status`).
     ///
-    /// Takes the CALLER'S connection so this and the outbox stage commit as one unit. Correlated by
-    /// `message_id` alone — this verb has NO company of its own; the caller has already bound the
-    /// AMBIENT scope on the tx (`bind_current_company`), so don't re-bind here. The receipt consumer
-    /// MUST wrap the whole thing in `with_company_scope(Some(event.company_id))` from the communication
-    /// receipt it is reacting to.
+    /// Takes the CALLER'S connection so this and the outbox stage commit as one unit.
     pub async fn apply_delivery_receipt(
         &self,
         conn: &mut sqlx::PgConnection,
@@ -242,7 +236,7 @@ impl NotificationRepository {
             r#"UPDATE notification.notifications
                SET status=$2::notification_status, failure_reason=COALESCE($3, failure_reason)
                WHERE message_id=$1 AND status='sent'::notification_status
-               RETURNING id, event_id, company_id"#,
+               RETURNING id, event_id"#,
         )
         .bind(message_id).bind(status).bind(reason)
         .fetch_optional(conn)
@@ -250,7 +244,6 @@ impl NotificationRepository {
         Ok(row.map(|r| DeliveredRow {
             id: r.get("id"),
             event_id: r.get("event_id"),
-            company_id: r.get("company_id"),
         }))
     }
 }

@@ -20,20 +20,21 @@ async fn nseam1_notification_lands_real_communication_message() {
     let svc = NotificationWriteService::new(pool.clone());
     let port = RealCommPort::new(pool.clone());
 
-    svc.create_template(NewTemplate {
-        company_id: company, event_type: "SLABreached".into(), channel: "whatsapp".into(),
-        name: "SLA breach".into(), subject_template: None,
-        body_template: "Tiket {{ticket}} melewati SLA.".into(),
-    }).await.unwrap();
-
     let ev = NotifyEvent {
-        company_id: company, event_id: Uuid::new_v4(), event_type: "SLABreached".into(),
+        event_id: Uuid::new_v4(), event_type: "SLABreached".into(),
         channel: "whatsapp".into(),
         recipients: vec![Recipient { party_id: Some(Uuid::new_v4()), address: "+628123".into() }],
         data: json!({"ticket": "ISS-42"}),
     };
     let event_id = ev.event_id;
-    let out = svc.notify(ev, &port, &LoggingSink).await.unwrap();
+    let out = with_org_scope(&pool, company, async {
+        svc.create_template(NewTemplate {
+            event_type: "SLABreached".into(), channel: "whatsapp".into(),
+            name: "SLA breach".into(), subject_template: None,
+            body_template: "Tiket {{ticket}} melewati SLA.".into(),
+        }).await.unwrap();
+        svc.notify(ev, &port, &LoggingSink).await.unwrap()
+    }).await;
     assert_eq!(out.dispatched, 1);
 
     // The notification recorded the REAL communication message id it dispatched to.

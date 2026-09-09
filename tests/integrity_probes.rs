@@ -1,6 +1,8 @@
-//! Integrity probes — the fan-out engine's invariants: a recipient needs an address, one template per
-//! (event, channel), a dispatch rejection is recorded, and dedup is per-recipient (a new recipient on the
-//! same event still sends).
+//! Integrity probes — the fan-out engine's invariants: a recipient needs an address, a dispatch
+//! rejection is recorded, and dedup is per-recipient (a new recipient on the same event still
+//! sends). The one-active-template-per-(event_type, channel) uniqueness is tenancy posture: no
+//! module table carries it (the composing service's tenancy decorator installs the per-unit
+//! form), so the probe that pinned the company-leading unique retired with the strip.
 
 mod common;
 use common::*;
@@ -12,16 +14,18 @@ use uuid::Uuid;
 
 async fn with_template(pool: &sqlx::PgPool, company: Uuid) -> NotificationWriteService {
     let svc = NotificationWriteService::new(pool.clone());
-    svc.create_template(NewTemplate {
-        company_id: company, event_type: "InvoiceDue".into(), channel: "whatsapp".into(),
-        name: "Invoice due".into(), subject_template: None, body_template: "Tagihan jatuh tempo".into(),
-    }).await.unwrap();
+    with_org_scope(pool, company, async {
+        svc.create_template(NewTemplate {
+            event_type: "InvoiceDue".into(), channel: "whatsapp".into(),
+            name: "Invoice due".into(), subject_template: None, body_template: "Tagihan jatuh tempo".into(),
+        }).await.unwrap();
+    }).await;
     svc
 }
 
-fn ev(company: Uuid, recipients: Vec<Recipient>) -> NotifyEvent {
+fn ev(recipients: Vec<Recipient>) -> NotifyEvent {
     NotifyEvent {
-        company_id: company, event_id: Uuid::new_v4(), event_type: "InvoiceDue".into(),
+        event_id: Uuid::new_v4(), event_type: "InvoiceDue".into(),
         channel: "whatsapp".into(), recipients, data: json!({}),
     }
 }
@@ -32,23 +36,9 @@ async fn nip1_recipient_needs_address() {
     let pool = pool().await;
     let company = Uuid::new_v4();
     let svc = with_template(&pool, company).await;
-    let r = svc.notify(ev(company, vec![Recipient { party_id: None, address: "  ".into() }]),
+    let r = svc.notify(ev(vec![Recipient { party_id: None, address: "  ".into() }]),
         &FakeComm::new(), &LoggingSink).await;
     assert!(matches!(r, Err(NotifyError::Invalid(_))));
-}
-
-// NIP-2 — one active template per (company, event_type, channel).
-#[tokio::test]
-async fn nip2_one_template_per_event_channel() {
-    let pool = pool().await;
-    let company = Uuid::new_v4();
-    let _svc = with_template(&pool, company).await;
-    let svc2 = NotificationWriteService::new(pool.clone());
-    let dup = svc2.create_template(NewTemplate {
-        company_id: company, event_type: "InvoiceDue".into(), channel: "whatsapp".into(),
-        name: "dup".into(), subject_template: None, body_template: "x".into(),
-    }).await;
-    assert!(matches!(dup, Err(NotifyError::Invalid(_))), "duplicate template refused");
 }
 
 // NIP-3 — a dispatch rejection records a failed notification (not swallowed).
@@ -59,9 +49,11 @@ async fn nip3_dispatch_rejection_recorded() {
     let svc = with_template(&pool, company).await;
     let port = FakeComm::rejecting("invalid_number", "bad msisdn");
 
-    let event = ev(company, vec![Recipient { party_id: None, address: "+628111".into() }]);
+    let event = ev(vec![Recipient { party_id: None, address: "+628111".into() }]);
     let event_id = event.event_id;
-    let out = svc.notify(event, &port, &LoggingSink).await.unwrap();
+    let out = with_org_scope(&pool, company, async {
+        svc.notify(event, &port, &LoggingSink).await.unwrap()
+    }).await;
     assert_eq!(out.failed, 1);
 
     let (status, reason): (String, Option<String>) = sqlx::query_as(
@@ -81,11 +73,14 @@ async fn nip4_dedup_is_per_recipient() {
     let event_id = Uuid::new_v4();
 
     let mk = |addr: &str| NotifyEvent {
-        company_id: company, event_id, event_type: "InvoiceDue".into(), channel: "whatsapp".into(),
+        event_id, event_type: "InvoiceDue".into(), channel: "whatsapp".into(),
         recipients: vec![Recipient { party_id: None, address: addr.into() }], data: json!({}),
     };
-    let a = svc.notify(mk("+628111"), &port, &LoggingSink).await.unwrap();
-    let b = svc.notify(mk("+628222"), &port, &LoggingSink).await.unwrap();
+    let (a, b) = with_org_scope(&pool, company, async {
+        let a = svc.notify(mk("+628111"), &port, &LoggingSink).await.unwrap();
+        let b = svc.notify(mk("+628222"), &port, &LoggingSink).await.unwrap();
+        (a, b)
+    }).await;
     assert_eq!(a.dispatched, 1);
     assert_eq!(b.dispatched, 1, "a different recipient on the same event is a distinct notification");
     assert_eq!(port.count(), 2);
@@ -106,14 +101,16 @@ async fn nip5_reaper_redrives_stranded_pending() {
     let event_id = Uuid::new_v4();
     sqlx::query(
         r#"INSERT INTO notification.notifications
-             (id, company_id, event_id, event_type, channel, recipient_address, body, status)
-           VALUES ($1,$2,$3,'InvoiceDue','whatsapp'::notif_channel,$4,$5,'pending'::notification_status)"#,
+             (id, event_id, event_type, channel, recipient_address, body, status)
+           VALUES ($1,$2,'InvoiceDue','whatsapp'::notif_channel,$3,$4,'pending'::notification_status)"#,
     )
-    .bind(notification_id).bind(company).bind(event_id).bind("+628999").bind("Tagihan jatuh tempo")
+    .bind(notification_id).bind(event_id).bind("+628999").bind("Tagihan jatuh tempo")
     .execute(&pool).await.unwrap();
 
     let port = FakeComm::new();
-    let n = svc.dispatch_pending(50, &port, &LoggingSink).await.unwrap();
+    let n = with_org_scope(&pool, company, async {
+        svc.dispatch_pending(50, &port, &LoggingSink).await.unwrap()
+    }).await;
     assert!(n >= 1, "the reaper re-dispatched the stranded notification");
 
     let status: String = sqlx::query_scalar(

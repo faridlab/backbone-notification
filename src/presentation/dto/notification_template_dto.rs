@@ -34,9 +34,6 @@ use crate::domain::entity::NotificationTemplateStatus;
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct CreateNotificationTemplateDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(alias = "event_type")]
     pub event_type: String,
@@ -64,9 +61,6 @@ pub struct CreateNotificationTemplateDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateNotificationTemplateDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(alias = "event_type")]
     pub event_type: String,
@@ -94,9 +88,6 @@ pub struct UpdateNotificationTemplateDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct PatchNotificationTemplateDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "event_type")]
     pub event_type: Option<String>,
@@ -117,7 +108,7 @@ pub struct PatchNotificationTemplateDto {
 impl PatchNotificationTemplateDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.event_type.is_some() || self.channel.is_some() || self.name.is_some() || self.subject_template.is_some() || self.body_template.is_some() || self.status.is_some()
+        self.event_type.is_some() || self.channel.is_some() || self.name.is_some() || self.subject_template.is_some() || self.body_template.is_some() || self.status.is_some()
     }
 }
 
@@ -135,8 +126,6 @@ impl PatchNotificationTemplateDto {
 pub struct NotificationTemplateResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub event_type: String,
     pub channel: NotifChannel,
@@ -203,9 +192,9 @@ impl NotificationTemplateListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct NotificationTemplateSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub event_type: String,
     pub channel: NotifChannel,
+    pub name: String,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -217,7 +206,6 @@ impl From<NotificationTemplate> for NotificationTemplateResponseDto {
     fn from(entity: NotificationTemplate) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             event_type: entity.event_type,
             channel: entity.channel,
             name: entity.name,
@@ -234,9 +222,9 @@ impl From<NotificationTemplate> for NotificationTemplateSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             event_type: entity.event_type,
             channel: entity.channel,
+            name: entity.name,
             created_at,
         }
     }
@@ -246,7 +234,6 @@ impl From<CreateNotificationTemplateDto> for NotificationTemplate {
     fn from(dto: CreateNotificationTemplateDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             event_type: dto.event_type,
             channel: dto.channel,
             name: dto.name,
@@ -262,7 +249,6 @@ impl From<&NotificationTemplate> for NotificationTemplateResponseDto {
     fn from(entity: &NotificationTemplate) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             event_type: entity.event_type.clone(),
             channel: entity.channel.clone(),
             name: entity.name.clone(),
@@ -282,7 +268,6 @@ impl backbone_core::FromCreateDto<CreateNotificationTemplateDto> for Notificatio
 
 impl backbone_core::ApplyUpdateDto<UpdateNotificationTemplateDto> for NotificationTemplate {
     fn apply_update(mut self, dto: UpdateNotificationTemplateDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.event_type = dto.event_type;
         self.channel = dto.channel;
         self.name = dto.name;

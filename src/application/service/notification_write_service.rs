@@ -6,11 +6,10 @@
 //! notification (the inbox pattern realized on the notification row's natural idempotency key). Posts NO
 //! GL. The Indonesia statutory/business content is the template author's concern, not this engine's.
 
-use backbone_orm::company_scope;
+use backbone_orm::org_scope;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::domain::entity::{Notification, NotificationTemplate};
 use crate::infrastructure::persistence::{
     NewNotificationRow, NewTemplateRow, NotificationRepository, NotificationTemplateRepository,
 };
@@ -18,33 +17,20 @@ use crate::infrastructure::persistence::{
 use super::notification_events::*;
 use super::notification_ports::*;
 
-/// Assert both entities expose a `company_field()` so the multi-tenant scope fence is wired.
-/// Called from [`NotificationWriteService::new`] — a `None` would make `backbone_orm::company_scope`
-/// degrade silently into unscoped queries (cross-tenant leak); refuse to build instead.
-fn assert_tenant_fence_wired() {
-    use backbone_orm::EntityRepoMeta;
-    assert!(
-        Notification::company_field().is_some(),
-        "Notification::company_field() is None — tenant isolation unwired; refusing to build \
-         NotificationWriteService (a scoped write would run without a company fence → cross-tenant leak)"
-    );
-    assert!(
-        NotificationTemplate::company_field().is_some(),
-        "NotificationTemplate::company_field() is None — tenant isolation unwired; refusing to \
-         build NotificationWriteService"
-    );
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum NotifyError {
     #[error("db: {0}")]
     Db(#[from] sqlx::Error),
     #[error("invalid input: {0}")]
     Invalid(String),
+    /// The outbox mirror row is company-keyed (it mirrors the framework-owned outbox table, whose
+    /// fence this module does not own), and no org scope carrying a company node was bound on this
+    /// task. Fails closed rather than guessing a key (composition-installed tenancy, ADR-0029).
+    #[error("no company in the ambient org scope — staging the notification lifecycle event requires one (composition-installed tenancy, ADR-0029)")]
+    NoCompanyScope,
 }
 
 pub struct NewTemplate {
-    pub company_id: Uuid,
     pub event_type: String,
     pub channel: String, // whatsapp | email | sms
     pub name: String,
@@ -59,7 +45,6 @@ pub struct Recipient {
 
 /// A domain event to fan out. `data` supplies the `{{placeholder}}` values the template renders.
 pub struct NotifyEvent {
-    pub company_id: Uuid,
     pub event_id: Uuid,
     pub event_type: String,
     pub channel: String,
@@ -90,35 +75,29 @@ pub struct NotificationWriteService {
 
 impl NotificationWriteService {
     pub fn new(pool: PgPool) -> Self {
-        // Fail loud at wiring time: see `assert_tenant_fence_wired`. If a schema/codegen change
-        // ever drops the entities' `company_field()`, the scope helpers would fence on nothing.
-        assert_tenant_fence_wired();
-
         let templates = NotificationTemplateRepository::new(pool.clone());
         let notifications = NotificationRepository::new(pool.clone());
         Self { pool, templates, notifications }
     }
 
-    /// Define (or replace) the active template for a (company, event_type, channel).
+    /// Define (or replace) the active template for an (event_type, channel).
     pub async fn create_template(&self, t: NewTemplate) -> Result<Uuid, NotifyError> {
         if t.body_template.trim().is_empty() {
             return Err(NotifyError::Invalid("template needs a body".into()));
         }
         let id = Uuid::new_v4();
-        let r = company_scope::with_company_scope(
-            Some(t.company_id),
-            self.templates.insert_template(&self.pool, &NewTemplateRow {
-                id,
-                company_id: t.company_id,
-                event_type: &t.event_type,
-                channel: &t.channel,
-                name: &t.name,
-                subject_template: t.subject_template.as_ref(),
-                body_template: &t.body_template,
-            }),
-        ).await;
+        let r = self.templates.insert_template(&self.pool, &NewTemplateRow {
+            id,
+            event_type: &t.event_type,
+            channel: &t.channel,
+            name: &t.name,
+            subject_template: t.subject_template.as_ref(),
+            body_template: &t.body_template,
+        }).await;
         match r {
             Ok(_) => Ok(id),
+            // Module tables ship no per-(event_type, channel) unique; a composing service's
+            // tenancy decorator may install a per-unit one, and that violation maps here too.
             Err(e) if e.as_database_error().map(|d| d.is_unique_violation()).unwrap_or(false) =>
                 Err(NotifyError::Invalid("a template already exists for this event/channel".into())),
             Err(e) => Err(e.into()),
@@ -137,11 +116,10 @@ impl NotificationWriteService {
     ) -> Result<NotifyOutcome, NotifyError> {
         let mut outcome = NotifyOutcome::default();
 
-        // Resolve the active template for (company, event_type, channel).
-        let template = company_scope::with_company_scope(
-            Some(ev.company_id),
-            self.templates.find_active(&self.pool, ev.company_id, &ev.event_type, &ev.channel),
-        ).await?;
+        // Resolve the active template for (event_type, channel).
+        let template = self.templates
+            .find_active(&self.pool, &ev.event_type, &ev.channel)
+            .await?;
 
         let Some(template) = template else {
             // No template for this event/channel — nothing to send. Skipped (recorded in the outcome).
@@ -162,21 +140,17 @@ impl NotificationWriteService {
             let body = render(&template.body_template, &ev.data);
 
             // Claim the (event_id, recipient) dedup slot. A redelivered event conflicts here → deduped.
-            let inserted = company_scope::with_company_scope(
-                Some(ev.company_id),
-                self.notifications.claim_recipient(&self.pool, &NewNotificationRow {
-                    id: Uuid::new_v4(),
-                    company_id: ev.company_id,
-                    event_id: ev.event_id,
-                    event_type: &ev.event_type,
-                    template_id: template.id,
-                    channel: &ev.channel,
-                    recipient_party_id: r.party_id,
-                    recipient_address: &address,
-                    subject: subject.as_ref(),
-                    body: &body,
-                }),
-            ).await?;
+            let inserted = self.notifications.claim_recipient(&self.pool, &NewNotificationRow {
+                id: Uuid::new_v4(),
+                event_id: ev.event_id,
+                event_type: &ev.event_type,
+                template_id: template.id,
+                channel: &ev.channel,
+                recipient_party_id: r.party_id,
+                recipient_address: &address,
+                subject: subject.as_ref(),
+                body: &body,
+            }).await?;
 
             let Some(notification_id) = inserted else {
                 outcome.deduped += 1;
@@ -186,17 +160,17 @@ impl NotificationWriteService {
             // Dispatch through the channel gateway.
             let req = DispatchRequest {
                 idempotency_key: notification_id.to_string(),
-                company_id: ev.company_id, channel: ev.channel.clone(),
+                channel: ev.channel.clone(),
                 recipient_party_id: r.party_id, recipient_address: address.clone(),
                 subject: subject.clone(), body: body.clone(),
             };
             match port.dispatch(&req).await {
                 Ok(ack) => {
-                    self.commit_dispatched(ev.company_id, notification_id, ev.event_id, ack.message_id, events).await?;
+                    self.commit_dispatched(notification_id, ev.event_id, ack.message_id, events).await?;
                     outcome.dispatched += 1;
                 }
                 Err(rej) => {
-                    self.commit_failed(ev.company_id, notification_id, ev.event_id, &rej, events).await?;
+                    self.commit_failed(notification_id, ev.event_id, &rej, events).await?;
                     outcome.failed += 1;
                 }
             }
@@ -216,30 +190,26 @@ impl NotificationWriteService {
         port: &dyn CommunicationPort,
         events: &dyn NotificationEventSink,
     ) -> Result<usize, NotifyError> {
-        // The sweep carries no company of its own — it reads under the AMBIENT scope, so the CALLER (the
-        // scheduler) MUST wrap this call in `with_company_scope(Some(company))` and drive it once per
-        // company; otherwise the RLS fence returns nothing and the stranded rows are never re-driven.
         let rows = self.notifications.list_pending(&self.pool, limit).await?;
 
         let mut dispatched = 0usize;
         for row in &rows {
             let notification_id = row.id;
             let event_id = row.event_id;
-            let row_company = row.company_id;
             let req = DispatchRequest {
                 idempotency_key: notification_id.to_string(),
-                company_id: row_company, channel: row.channel.clone(),
+                channel: row.channel.clone(),
                 recipient_party_id: row.recipient_party_id,
                 recipient_address: row.recipient_address.clone(),
                 subject: row.subject.clone(), body: row.body.clone(),
             };
             match port.dispatch(&req).await {
                 Ok(ack) => {
-                    self.commit_dispatched(row_company, notification_id, event_id, ack.message_id, events).await?;
+                    self.commit_dispatched(notification_id, event_id, ack.message_id, events).await?;
                     dispatched += 1;
                 }
                 Err(rej) => {
-                    self.commit_failed(row_company, notification_id, event_id, &rej, events).await?;
+                    self.commit_failed(notification_id, event_id, &rej, events).await?;
                 }
             }
         }
@@ -263,19 +233,19 @@ impl NotificationWriteService {
             DeliveryOutcome::Undelivered(reason) => ("undelivered", Some(reason.clone())),
         };
         let mut tx = self.pool.begin().await?;
-        // Correlated by `message_id` alone — this verb has NO company of its own, so the UPDATE binds
-        // the AMBIENT scope. The CALLER (the receipt consumer) MUST wrap this in
-        // `with_company_scope(Some(event.company_id))` from the communication receipt it is reacting to.
-        company_scope::bind_current_company(&mut tx).await?;
+        // Correlated by `message_id` alone — this verb carries no scoping key of its own. Relay the
+        // ambient request scope onto this transaction, when one is bound, so the transition and the
+        // outbox stage run fenced under a decorated deployment. A module that knows nothing about
+        // tenancy invents no scope of its own — unfenced callers skip this.
+        if let Some(scope) = org_scope::current_org_scope() {
+            org_scope::bind_org_scope_on(&mut *tx, &scope).await?;
+        }
         let row = self.notifications
             .apply_delivery_receipt(&mut tx, message_id, status, reason.as_ref())
             .await?;
         let Some(row) = row else { tx.rollback().await?; return Ok(false) };
         let notification_id = row.id;
         let event_id = row.event_id;
-        // The notification's own tenant — read off the row (the authoritative source), never off the
-        // event payload (a NotificationEvent carries no company_id; the prior extraction always failed).
-        let company_id = row.company_id;
         let event = match outcome {
             DeliveryOutcome::Delivered =>
                 NotificationEvent::NotificationDelivered { notification_id, event_id },
@@ -284,7 +254,7 @@ impl NotificationWriteService {
         };
         // Stage the delivery-state event durably in the same tx as the status transition: a consumer
         // escalates on it, so a crash before the in-proc publish must not drop it.
-        stage_lifecycle_event(&mut tx, company_id, &event).await?;
+        stage_lifecycle_event(&mut tx, &event).await?;
         tx.commit().await?;
         events.publish(&event);
         Ok(true)
@@ -293,11 +263,9 @@ impl NotificationWriteService {
     /// `pending → sent` and stage `NotificationDispatched` to the outbox in ONE tx, then publish
     /// in-process. The transition and the event land atomically, so a crash between them cannot drop
     /// the dispatch signal a downstream consumer escalates on (the durability gap the maturity council
-    /// flagged for `notify`/`dispatch_pending`). The company is bound EXPLICITLY off the known tenant —
-    /// no ambient-scope dependency, correct for the event-subscriber/job callers that drive this engine.
+    /// flagged for `notify`/`dispatch_pending`).
     async fn commit_dispatched(
         &self,
-        company_id: Uuid,
         notification_id: Uuid,
         event_id: Uuid,
         message_id: Uuid,
@@ -305,9 +273,13 @@ impl NotificationWriteService {
     ) -> Result<(), NotifyError> {
         let event = NotificationEvent::NotificationDispatched { notification_id, event_id, message_id };
         let mut tx = self.pool.begin().await?;
-        company_scope::bind_company_on(&mut tx, company_id).await?;
+        // Relay the ambient request scope onto this transaction, when one is bound (see
+        // [`Self::record_delivery`]).
+        if let Some(scope) = org_scope::current_org_scope() {
+            org_scope::bind_org_scope_on(&mut *tx, &scope).await?;
+        }
         self.notifications.mark_sent_in_tx(&mut tx, notification_id, message_id).await?;
-        stage_lifecycle_event(&mut tx, company_id, &event).await?;
+        stage_lifecycle_event(&mut tx, &event).await?;
         tx.commit().await?;
         events.publish(&event);
         Ok(())
@@ -318,7 +290,6 @@ impl NotificationWriteService {
     /// stable `code` (preserving the prior split). See [`Self::commit_dispatched`] for the tx rationale.
     async fn commit_failed(
         &self,
-        company_id: Uuid,
         notification_id: Uuid,
         event_id: Uuid,
         rej: &DispatchRejected,
@@ -328,9 +299,13 @@ impl NotificationWriteService {
             notification_id, event_id, reason: rej.code.clone(),
         };
         let mut tx = self.pool.begin().await?;
-        company_scope::bind_company_on(&mut tx, company_id).await?;
+        // Relay the ambient request scope onto this transaction, when one is bound (see
+        // [`Self::record_delivery`]).
+        if let Some(scope) = org_scope::current_org_scope() {
+            org_scope::bind_org_scope_on(&mut *tx, &scope).await?;
+        }
         self.notifications.mark_failed_in_tx(&mut tx, notification_id, &rej.message).await?;
-        stage_lifecycle_event(&mut tx, company_id, &event).await?;
+        stage_lifecycle_event(&mut tx, &event).await?;
         tx.commit().await?;
         events.publish(&event);
         Ok(())
@@ -408,14 +383,18 @@ fn normalize_recipient_address(channel: &str, raw: &str) -> String {
 /// the status transition that produced it — so a crash between the write and the in-process publish
 /// cannot drop the event.
 ///
-/// `company_id` is the notification's own tenant, passed EXPLICITLY. A `NotificationEvent` is a terminal
-/// observability signal and carries NO tenant in its payload, so the company must never be read back out
-/// of the serialized event (`record_delivery` once did that and the staging always failed).
+/// The outbox mirror row is company-keyed (it mirrors the framework-owned outbox table, whose fence
+/// this module does not own). That key is the MIRROR's domain parameter (composition-installed tenancy,
+/// ADR-0029) — sourced from the ambient org scope and failing closed when the caller carries none,
+/// rather than guessed. A `NotificationEvent` is a terminal observability signal and carries no tenant
+/// in its payload, so the key must never be read out of the serialized event.
 async fn stage_lifecycle_event(
     conn: &mut sqlx::PgConnection,
-    company_id: Uuid,
     event: &NotificationEvent,
 ) -> Result<(), NotifyError> {
+    let mirror_company = org_scope::current_org_scope()
+        .and_then(|s| s.legacy_company_id())
+        .ok_or(NotifyError::NoCompanyScope)?;
     let payload = serde_json::to_value(event)
         .map_err(|e| NotifyError::Invalid(format!("event serialize: {e}")))?;
     let (event_type, notification_id) = match event {
@@ -432,7 +411,7 @@ async fn stage_lifecycle_event(
         event_type,
         "Notification",
         notification_id.to_string(),
-        company_id,
+        mirror_company,
         payload,
         chrono::Utc::now(),
     );

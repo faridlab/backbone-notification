@@ -20,8 +20,42 @@ pub fn dburl() -> String {
     std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5433/backbone_notification".into())
 }
+/// Composition-boot parity for the outbox mirror, run ONCE per test process (the heal's
+/// drop-and-recreate policy step is not safe to run concurrently): a composing service's boot
+/// heals notification.outbox_events to the framework shape (the company column + fence), and
+/// the lifecycle-event staging writes that shape. The once-cell applies the same heal here so
+/// the module-era 11-column table the migration chain creates carries it too.
+static OUTBOX_HEAL: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+
 pub async fn pool() -> PgPool {
-    PgPool::connect(&dburl()).await.expect("connect")
+    let pool = PgPool::connect(&dburl()).await.expect("connect");
+    OUTBOX_HEAL
+        .get_or_init(|| async {
+            backbone_outbox::outbox::migrate(&pool, "notification")
+                .await
+                .expect("outbox heal");
+        })
+        .await;
+    pool
+}
+
+/// Run `f` inside a company-anchored org request scope. The lifecycle events' outbox
+/// mirror rows are company-keyed (they mirror the framework-owned outbox table), and
+/// their key is sourced from the ambient org scope, failing closed when none is bound
+/// (composition-installed tenancy, ADR-0029) — probes that drive a path which stages
+/// bind one here. Undecorated probes that neither stage nor depend on a fence run bare.
+pub async fn with_org_scope<R, F: std::future::Future<Output = R>>(
+    pool: &sqlx::PgPool,
+    company: uuid::Uuid,
+    f: F,
+) -> R {
+    backbone_orm::org_scope::with_org_request_scope(
+        pool,
+        backbone_orm::org_scope::OrgScope::for_company_unit(company),
+        f,
+    )
+    .await
+    .expect("org request scope")
 }
 
 /// A fake channel gateway. Records every dispatch; assigns a message id, or rejects when armed.
@@ -76,7 +110,7 @@ impl CommunicationPort for RealCommPort {
     async fn dispatch(&self, req: &DispatchRequest) -> Result<DispatchAck, DispatchRejected> {
         use backbone_communication::application::service::communication_events::LoggingSink;
         let thread = self.comm
-            .open_thread(req.company_id, &req.channel, req.recipient_party_id, None)
+            .open_thread(&req.channel, req.recipient_party_id, None)
             .await
             .map_err(|e| DispatchRejected { code: "comm_open".into(), message: e.to_string() })?;
         let message_id = self.comm

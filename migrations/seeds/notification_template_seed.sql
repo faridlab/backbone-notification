@@ -6,7 +6,6 @@
 
 -- INSERT INTO notification.notification_templates (
 --     id,
---     company_id,
 --     event_type,
 --     channel,
 --     name,

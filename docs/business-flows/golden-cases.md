@@ -2,7 +2,7 @@
 
 ## Flow: domain event → template → fan-out → dispatch (idempotently, recoverably)
 ```
-create_template (per company/event_type/channel, {{placeholder}} body)
+create_template (per event_type/channel, {{placeholder}} body)
    │
    ▼  notify(event, recipients, data)  [domain event, at-least-once]
    │     ├─ resolve active template — none → skipped (recorded, nothing sent)
@@ -26,11 +26,14 @@ Every dispatch carries the notification's `idempotency_key` so a re-drive can't 
 
 ## Integrity probes (`tests/integrity_probes.rs`)
 - **NIP-1 — recipient needs an address.**
-- **NIP-2 — one template per (event, channel).** A duplicate is refused.
 - **NIP-3 — dispatch rejection recorded.** A rejection persists a `failed` row + reason (not swallowed).
 - **NIP-4 — dedup is per-recipient.** A different recipient on the same event still sends.
 - **NIP-5 — the reaper re-drives a stranded pending.** A notification stuck `pending` (crash-after-claim)
   → `dispatch_pending` sends it (`sent`), carrying its idempotency key. Proven-by-revert.
+
+(The former NIP-2 — one template per (event, channel), duplicate refused — retired with the
+composition-installed tenancy strip, ADR-0029: the module tables carry no such unique; a composing
+service's tenancy decorator may declare a per-unit one.)
 
 ## Seam (`tests/notification_communication_seam.rs`)
 - **NSEAM-1 — dispatches a REAL communication message.** `notify` → the REAL backbone-communication

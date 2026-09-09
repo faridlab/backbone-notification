@@ -48,7 +48,6 @@ impl From<NotificationId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationDto {
     pub id: NotificationId,
-    pub company_id: Uuid,
     pub event_id: Uuid,
     pub event_type: String,
     pub template_id: Option<Uuid>,
@@ -114,7 +113,6 @@ impl From<NotificationTemplateId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationTemplateDto {
     pub id: NotificationTemplateId,
-    pub company_id: Uuid,
     pub event_type: String,
     pub channel: NotifChannel,
     pub name: String,

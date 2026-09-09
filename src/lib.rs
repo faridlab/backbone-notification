@@ -174,8 +174,7 @@ impl NotificationModuleBuilder {
 
         // <<< CUSTOM
         // The validated write engine. Self-constructs from the pool; CommunicationPort and
-        // NotificationEventSink stay per-call (the composing service's concern). Construction
-        // asserts both entities expose company_field() so the tenant fence is wired (see new()).
+        // NotificationEventSink stay per-call (the composing service's concern).
         let write_service = Arc::new(application::service::NotificationWriteService::new(db_pool.clone()));
         // END CUSTOM
 

@@ -51,7 +51,6 @@ impl std::ops::Deref for NotificationId {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Notification {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub event_id: Uuid,
     pub event_type: String,
     pub template_id: Option<Uuid>,
@@ -75,10 +74,9 @@ impl Notification {
     }
 
     /// Create a new Notification with required fields
-    pub fn new(company_id: Uuid, event_id: Uuid, event_type: String, channel: NotifChannel, recipient_address: String, body: String, status: NotificationStatus) -> Self {
+    pub fn new(event_id: Uuid, event_type: String, channel: NotifChannel, recipient_address: String, body: String, status: NotificationStatus) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id,
             event_id,
             event_type,
             template_id: None,
@@ -192,9 +190,6 @@ impl Notification {
     pub fn apply_patch(&mut self, fields: std::collections::HashMap<String, serde_json::Value>) {
         for (key, value) in fields {
             match key.as_str() {
-                "company_id" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.company_id = v; }
-                }
                 "event_id" => {
                     if let Ok(v) = serde_json::from_value(value) { self.event_id = v; }
                 }
@@ -282,7 +277,6 @@ impl backbone_orm::EntityRepoMeta for Notification {
     fn column_types() -> std::collections::HashMap<String, String> {
         let mut m = std::collections::HashMap::new();
         m.insert("id".to_string(), "uuid".to_string());
-        m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("event_id".to_string(), "uuid".to_string());
         m.insert("template_id".to_string(), "uuid".to_string());
         m.insert("recipient_party_id".to_string(), "uuid".to_string());
@@ -294,9 +288,6 @@ impl backbone_orm::EntityRepoMeta for Notification {
     fn search_fields() -> &'static [&'static str] {
         &["event_type", "recipient_address", "body"]
     }
-    fn company_field() -> Option<&'static str> {
-        Some("company_id")
-    }
 }
 
 /// Builder for Notification entity
@@ -305,7 +296,6 @@ impl backbone_orm::EntityRepoMeta for Notification {
 /// System fields (id, metadata, timestamps) are auto-initialized.
 #[derive(Debug, Clone, Default)]
 pub struct NotificationBuilder {
-    company_id: Option<Uuid>,
     event_id: Option<Uuid>,
     event_type: Option<String>,
     template_id: Option<Uuid>,
@@ -320,12 +310,6 @@ pub struct NotificationBuilder {
 }
 
 impl NotificationBuilder {
-    /// Set the company_id field (required)
-    pub fn company_id(mut self, value: Uuid) -> Self {
-        self.company_id = Some(value);
-        self
-    }
-
     /// Set the event_id field (required)
     pub fn event_id(mut self, value: Uuid) -> Self {
         self.event_id = Some(value);
@@ -396,7 +380,6 @@ impl NotificationBuilder {
     ///
     /// Returns Err if any required field without a default is missing.
     pub fn build(self) -> Result<Notification, String> {
-        let company_id = self.company_id.ok_or_else(|| "company_id is required".to_string())?;
         let event_id = self.event_id.ok_or_else(|| "event_id is required".to_string())?;
         let event_type = self.event_type.ok_or_else(|| "event_type is required".to_string())?;
         let channel = self.channel.ok_or_else(|| "channel is required".to_string())?;
@@ -405,7 +388,6 @@ impl NotificationBuilder {
 
         Ok(Notification {
             id: Uuid::new_v4(),
-            company_id,
             event_id,
             event_type,
             template_id: self.template_id,

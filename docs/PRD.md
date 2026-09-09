@@ -11,8 +11,8 @@ events, renders a template per recipient, and dispatches each through the **chan
 double-notifies.
 
 ## Scope (KEEP — tier5-deferred.md §4)
-- **NotificationTemplate** — a reusable template keyed by (company, event_type, channel), with a
-  `{{placeholder}}` body rendered from the event's data. One active template per (event, channel).
+- **NotificationTemplate** — a reusable template keyed by (event_type, channel), with a
+  `{{placeholder}}` body rendered from the event's data.
 - **Notification** — one rendered notification per recipient of one event; the row is the **idempotency
   record** (unique `(event_id, recipient_address)`).
 - **The fan-out engine** — `notify(event, recipients, data)` resolves the template, renders per recipient,

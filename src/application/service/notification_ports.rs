@@ -15,7 +15,6 @@ pub struct DispatchRequest {
     /// as a provider-level dedup token so the retry reaper (`dispatch_pending`) can re-drive a stranded
     /// notification without double-notifying the recipient (maturity council 2026-07-08).
     pub idempotency_key: String,
-    pub company_id: Uuid,
     pub channel: String, // whatsapp | email | sms
     pub recipient_party_id: Option<Uuid>,
     pub recipient_address: String,

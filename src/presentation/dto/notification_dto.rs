@@ -35,9 +35,6 @@ use crate::domain::entity::NotificationStatus;
 #[serde(rename_all = "camelCase")]
 pub struct CreateNotificationDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "event_id")]
     pub event_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
@@ -75,9 +72,6 @@ pub struct CreateNotificationDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateNotificationDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "event_id")]
     pub event_id: Uuid,
@@ -117,9 +111,6 @@ pub struct UpdateNotificationDto {
 #[serde(rename_all = "camelCase")]
 pub struct PatchNotificationDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "event_id")]
     pub event_id: Option<Uuid>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
@@ -150,7 +141,7 @@ pub struct PatchNotificationDto {
 impl PatchNotificationDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.event_id.is_some() || self.event_type.is_some() || self.template_id.is_some() || self.channel.is_some() || self.recipient_party_id.is_some() || self.recipient_address.is_some() || self.subject.is_some() || self.body.is_some() || self.status.is_some() || self.message_id.is_some() || self.failure_reason.is_some()
+        self.event_id.is_some() || self.event_type.is_some() || self.template_id.is_some() || self.channel.is_some() || self.recipient_party_id.is_some() || self.recipient_address.is_some() || self.subject.is_some() || self.body.is_some() || self.status.is_some() || self.message_id.is_some() || self.failure_reason.is_some()
     }
 }
 
@@ -168,8 +159,6 @@ impl PatchNotificationDto {
 pub struct NotificationResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub event_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
@@ -242,9 +231,9 @@ impl NotificationListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct NotificationSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub event_id: Uuid,
     pub event_type: String,
+    pub template_id: Option<Uuid>,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -256,7 +245,6 @@ impl From<Notification> for NotificationResponseDto {
     fn from(entity: Notification) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             event_id: entity.event_id,
             event_type: entity.event_type,
             template_id: entity.template_id,
@@ -278,9 +266,9 @@ impl From<Notification> for NotificationSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             event_id: entity.event_id,
             event_type: entity.event_type,
+            template_id: entity.template_id,
             created_at,
         }
     }
@@ -290,7 +278,6 @@ impl From<CreateNotificationDto> for Notification {
     fn from(dto: CreateNotificationDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             event_id: dto.event_id,
             event_type: dto.event_type,
             template_id: dto.template_id,
@@ -311,7 +298,6 @@ impl From<&Notification> for NotificationResponseDto {
     fn from(entity: &Notification) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             event_id: entity.event_id.clone(),
             event_type: entity.event_type.clone(),
             template_id: entity.template_id.clone(),
@@ -336,7 +322,6 @@ impl backbone_core::FromCreateDto<CreateNotificationDto> for Notification {
 
 impl backbone_core::ApplyUpdateDto<UpdateNotificationDto> for Notification {
     fn apply_update(mut self, dto: UpdateNotificationDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.event_id = dto.event_id;
         self.event_type = dto.event_type;
         self.template_id = dto.template_id;

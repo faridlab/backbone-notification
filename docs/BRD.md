@@ -1,14 +1,17 @@
 # backbone-notification — BRD
 
 ## Documents
-NotificationTemplate (per company/event_type/channel) · Notification (one per recipient of one event). Own
-Postgres schema `notification`. Posts **no GL**. Dispatches through backbone-communication.
+NotificationTemplate (per event_type/channel) · Notification (one per recipient of one event). Own
+Postgres schema `notification`. Posts **no GL**. Dispatches through backbone-communication. The module is
+tenant-agnostic (composition-installed tenancy, ADR-0029): a composing service that wants org-scoped
+behavior declares it in its tenancy decorator.
 
 ## Business rules
 
-**BR-1 (template).** `create_template` defines the active template for a (company, event_type, channel),
-with a `{{placeholder}}` body. **One active template per (company, event_type, channel)** — a duplicate is
-refused. The body is required.
+**BR-1 (template).** `create_template` defines the active template for an (event_type, channel),
+with a `{{placeholder}}` body. The body is required. One active template per unit per
+(event_type, channel) — where a deployment wants that posture — is the composing service's tenancy
+decorator's declaration, not a module rule.
 
 **BR-2 (fan-out — the idempotency invariant).** `notify(event, recipients, data)` resolves the active
 template and, per recipient, renders and records exactly one notification, keyed **unique on (event_id,

@@ -1,10 +1,11 @@
 # =============================================================================
 # Domain: Notification
 # Entity: NotificationTemplate
-# Description: A reusable message template keyed by (company, event_type, channel). When a domain event
+# Description: A reusable message template keyed by (event_type, channel). When a domain event
 # fires (OrderConfirmed, InvoiceDue, SLABreached), the matching active template renders the body from the
 # event's data (a `{{placeholder}}` substitution) and the result is dispatched through backbone-
-# communication. One active template per (company, event_type, channel).
+# communication. A composing service that wants one active template per org unit per
+# (event_type, channel) declares that uniqueness in its tenancy decorator.
 # =============================================================================
 
 models:
@@ -16,10 +17,6 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique template id"
-      company_id:
-        type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
-        description: "Org owner # logical FK to organization.Company.id"
       event_type:
         type: string
         attributes: ["@required", "@length(max=80)"]
@@ -48,9 +45,6 @@ models:
         type: Metadata
         attributes: ["@audit_metadata"]
         description: "Audit metadata"
-    indexes:
-      - type: unique
-        fields: [company_id, event_type, channel]
 
 enums:
   - name: NotificationTemplateStatus

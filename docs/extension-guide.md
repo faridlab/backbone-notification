@@ -33,9 +33,11 @@ the **composing backend-service's** responsibility. That service:
 1. Subscribes to whichever domain events it wants fanned out (e.g. `OrderConfirmed`, `InvoiceOverdue`) on
    its own bus / outbox drain.
 2. Translates each into a `NotifyEvent`, carrying the source event's stable id as `event_id` (the dedup
-   key) and wrapping the call in `with_company_scope(Some(event.company_id))` so the tenant fence is set.
-3. Calls `NotificationWriteService::notify` (or drives `dispatch_pending` on a schedule, once per
-   company, under that company's scope).
+   key).
+3. Calls `NotificationWriteService::notify` (or drives `dispatch_pending` on a schedule). When the
+   composing service wants the lifecycle events' company-keyed outbox mirror rows stamped with its
+   tenant, it binds its ambient org request scope around the call; with no scope bound, staging the
+   lifecycle event fails closed (`NoCompanyScope`) rather than guessing a key.
 4. Supplies the `CommunicationPort` over backbone-communication and a `NotificationEventSink`.
 
 This keeps the module free of runtime/plumbing choices (which bus, which polling cadence, which tenant a

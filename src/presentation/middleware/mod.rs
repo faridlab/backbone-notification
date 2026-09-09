@@ -1,10 +1,8 @@
 //! Presentation middleware (hand-written; user-owned).
 //!
-//! Gated on `gateway-queue`: the notification gate binds this module's routes
-//! to backbone-mail's partner-identity extensions, so it only exists when the
-//! queue-backed composition is compiled in.
-
-#[cfg(feature = "gateway-queue")]
-pub mod notification_gate;
-#[cfg(feature = "gateway-queue")]
-pub use notification_gate::{notification_gate, NotificationGate};
+//! Empty since the tenant-agnostic strip: the former notification gate bundled an
+//! admin check with a sentinel `app.company_id` scope wrap for fence-none apps
+//! composing the then-company-fenced module. The module no longer ships a scoping
+//! column or fence (composition-installed tenancy, ADR-0029) — identity and
+//! permission gating are the composing service's org auth layer, which mounts
+//! over these routes and supplies the ambient request scope.

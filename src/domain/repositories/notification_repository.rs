@@ -44,7 +44,6 @@ pub struct NotificationPaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct NotificationFilter {
-    pub company_id: Option<Uuid>,
     pub event_id: Option<Uuid>,
     pub event_type: Option<String>,
     pub template_id: Option<Uuid>,
@@ -61,7 +60,7 @@ pub struct NotificationFilter {
 impl NotificationFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.event_id.is_some() || self.event_type.is_some() || self.template_id.is_some() || self.channel.is_some() || self.recipient_party_id.is_some() || self.recipient_address.is_some() || self.subject.is_some() || self.body.is_some() || self.status.is_some() || self.message_id.is_some() || self.failure_reason.is_some()
+        self.event_id.is_some() || self.event_type.is_some() || self.template_id.is_some() || self.channel.is_some() || self.recipient_party_id.is_some() || self.recipient_address.is_some() || self.subject.is_some() || self.body.is_some() || self.status.is_some() || self.message_id.is_some() || self.failure_reason.is_some()
     }
 }
 
