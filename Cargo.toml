@@ -1,6 +1,6 @@
 [package]
 name = "backbone-notification"
-version = "0.5.9"
+version = "0.5.10"
 edition = "2021"
 description = "Notification delivery and user preferences"
 
@@ -8,19 +8,19 @@ description = "Notification delivery and user preferences"
 path = "src/lib.rs"
 
 [dependencies]
-backbone-outbox = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.24", features = ["multi_tenant"] }
+backbone-outbox = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.26, features = ["multi_tenant"] }
 # Backbone Framework CORE dependencies
-backbone-core = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.24", features = ["postgres"] }
-backbone-orm = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.24" }
-backbone-auth = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.24" }
-backbone-messaging = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.24" }
+backbone-core = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.26, features = ["postgres"] }
+backbone-orm = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.26 }
+backbone-auth = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.26 }
+backbone-messaging = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.26 }
 
 # Queue-backed CommunicationPort adapter (ADR-0024 seam) — dispatches notifications
 # onto backbone-mail's message/sms queues ("one gateway, two producers"). Opt-in via
 # the `gateway-queue` feature; without it this module ships no transport. NOTE:
 # both modules pin their framework deps at matching tags — a
 # consumer MUST [patch] both to one checkout (composing apps' Cargo.tomls do).
-backbone-mail = { git = "https://github.com/faridlab/backbone-mail", tag = "v0.2.18", optional = true }
+backbone-mail = { git = "https://github.com/faridlab/backbone-mail", tag = "v0.2.19", optional = true }
 
 # OpenAPI schema derives. Unconditional: the generator emits an ungated
 # `use utoipa::ToSchema;` in every entity and DTO file, so the crate must
