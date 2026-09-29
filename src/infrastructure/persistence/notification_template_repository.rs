@@ -94,6 +94,30 @@ impl NotificationTemplateRepository {
 
     /// Resolve the active template for an (event_type, channel). `Ok(None)` = nothing to send
     /// for this event/channel, and the caller records the recipients as skipped.
+    /// Fetch one template by id (any status; the caller decides whether a
+    /// non-active template renders). The read side of the public render
+    /// surface other modules' ports compose against.
+    pub async fn find_by_id(
+        &self,
+        pool: &PgPool,
+        id: Uuid,
+    ) -> Result<Option<ActiveTemplateRow>, sqlx::Error> {
+        let row = org_scope::fetch_optional_row_scoped(
+            pool,
+            sqlx::query(
+                r#"SELECT id, subject_template, body_template FROM notification.notification_templates
+                   WHERE id=$1 AND (metadata->>'deleted_at') IS NULL"#,
+            )
+            .bind(id),
+        )
+        .await?;
+        Ok(row.map(|r| ActiveTemplateRow {
+            id: r.get("id"),
+            subject_template: r.get("subject_template"),
+            body_template: r.get("body_template"),
+        }))
+    }
+
     pub async fn find_active(
         &self,
         pool: &PgPool,

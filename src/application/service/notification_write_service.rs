@@ -104,6 +104,30 @@ impl NotificationWriteService {
         }
     }
 
+    /// Render one template by id against a caller-supplied variable map —
+    /// the public twin of the substitution `notify` applies internally.
+    /// This is the surface a host adapter composes onto another module's
+    /// template port (the events scheduler's EventTemplateRenderer): same
+    /// `{{key}}` semantics, unknown keys render empty, and a deleted or
+    /// unknown template id is the typed refusal.
+    pub async fn render_template_by_id(
+        &self,
+        template_id: Uuid,
+        data: &serde_json::Value,
+    ) -> Result<(Option<String>, String), NotifyError> {
+        let row = self
+            .templates
+            .find_by_id(&self.pool, template_id)
+            .await?
+            .ok_or(NotifyError::Invalid("template not found".into()))?;
+        let subject = row
+            .subject_template
+            .as_ref()
+            .map(|t| render(t, data));
+        let body = render(&row.body_template, data);
+        Ok((subject, body))
+    }
+
     /// Fan a domain event out to its recipients. For each recipient: render the active template and
     /// dispatch through the `CommunicationPort`, recording exactly one notification per (event_id,
     /// recipient_address). A redelivered event dedups on that key (no double-notify); a recipient with no
@@ -461,5 +485,27 @@ mod normalize_tests {
         assert_eq!(normalize_recipient_address("whatsapp", "+"), "");
         assert_eq!(normalize_recipient_address("sms", "+ - ()"), "");
         assert_eq!(normalize_recipient_address("email", "   "), "");
+    }
+}
+
+#[cfg(test)]
+mod render_surface_tests {
+    use super::*;
+
+    /// The render surface applies the same {{key}} substitution the notify
+    /// fan-out applies, unknown keys render empty, and a missing template id
+    /// is the typed refusal. (The happy-path render needs a database row;
+    /// its semantics are pinned by notify's own tests — this unit pins the
+    /// substitution arms, which are the surface's contract with foreign
+    /// callers.)
+    #[test]
+    fn render_substitutes_and_unknown_keys_empty() {
+        let data = serde_json::json!({"name": "Dewi", "event": "Town Hall"});
+        assert_eq!(
+            render("Hi {{name}}, {{event}} at {{venue}}!", &data),
+            "Hi Dewi, Town Hall at !"
+        );
+        assert_eq!(render("no placeholders", &data), "no placeholders");
+        assert_eq!(render("unterminated {{oops", &data), "unterminated {{oops");
     }
 }
