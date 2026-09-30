@@ -10,6 +10,5 @@ pub mod notification_api_test;
 pub mod notification_template_api_test;
 
 // Re-exports for convenience
-pub use crud_test_base::*;
 pub use notification_api_test::*;
 pub use notification_template_api_test::*;
