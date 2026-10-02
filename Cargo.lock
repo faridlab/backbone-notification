@@ -915,6 +915,8 @@ dependencies = [
 [[package]]
 name = "backbone-communication"
 version = "0.5.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75da37e0a0ea1ff53b2145eb636e1a4b58c16640407f6f48ac79531b2b2a88bb"
 dependencies = [
  "anyhow",
  "async-trait",
