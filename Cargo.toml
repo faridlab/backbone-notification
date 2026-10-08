@@ -1,6 +1,6 @@
 [package]
 name = "backbone-notification"
-version = "0.5.24"
+version = "0.6.0"
 edition = "2021"
 description = "Notification delivery and user preferences"
 license = "MIT OR Apache-2.0"
@@ -11,19 +11,19 @@ exclude = [".claude/", ".github/", "graphify-out/"]
 path = "src/lib.rs"
 
 [dependencies]
-backbone-outbox = { version = "2.7.35", features = ["multi_tenant"] }
+backbone-outbox = { version = "3.0.0", features = ["multi_tenant"] }
 # Backbone Framework CORE dependencies
-backbone-core = { version = "2.7.35", features = ["postgres"] }
-backbone-orm = { version = "2.7.35" }
-backbone-auth = { version = "2.7.35" }
-backbone-messaging = { version = "2.7.35" }
+backbone-core = { version = "3.0.0", features = ["postgres"] }
+backbone-orm = { version = "3.0.0" }
+backbone-auth = { version = "3.0.0" }
+backbone-messaging = { version = "3.0.0" }
 
 # Queue-backed CommunicationPort adapter (ADR-0024 seam) — dispatches notifications
 # onto backbone-mail's message/sms queues ("one gateway, two producers"). Opt-in via
 # the `gateway-queue` feature; without it this module ships no transport. NOTE:
 # both modules pin their framework deps at matching tags — a
 # consumer MUST [patch] both to one checkout (composing apps' Cargo.tomls do).
-backbone-mail = { version = "0.2.32", optional = true }
+backbone-mail = { version = "0.3.0", optional = true }
 
 # OpenAPI schema derives. Unconditional: the generator emits an ungated
 # `use utoipa::ToSchema;` in every entity and DTO file, so the crate must
@@ -99,4 +99,4 @@ rand = "0.8"
 # TEST-ONLY edge: the dispatch seam proves a notification lands a REAL outbound message in backbone-
 # communication (the channel gateway) via an in-test CommunicationPort. Dev-dependency ONLY — the shipped
 # library reaches communication through the port, never a Cargo edge.
-backbone-communication = { version = "0.5.16" }
+backbone-communication = { version = "0.6.0" }
