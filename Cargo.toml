@@ -1,6 +1,6 @@
 [package]
 name = "backbone-notification"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Notification delivery and user preferences"
 license = "MIT OR Apache-2.0"
@@ -23,7 +23,7 @@ backbone-messaging = { version = "3.0.0" }
 # the `gateway-queue` feature; without it this module ships no transport. NOTE:
 # both modules pin their framework deps at matching tags — a
 # consumer MUST [patch] both to one checkout (composing apps' Cargo.tomls do).
-backbone-mail = { version = "0.3.0", optional = true }
+backbone-mail = { version = "0.4.0", optional = true }
 
 # OpenAPI schema derives. Unconditional: the generator emits an ungated
 # `use utoipa::ToSchema;` in every entity and DTO file, so the crate must
