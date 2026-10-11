@@ -282,7 +282,7 @@ impl backbone_core::ApplyUpdateDto<UpdateNotificationTemplateDto> for Notificati
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to NotificationTemplate here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

@@ -12,5 +12,3 @@ pub use notification_event_handlers::NotificationEventHandler;
 pub use notification_template_events::{NotificationTemplateEvent, NotificationTemplateEventPublisher, NoopNotificationTemplateEventPublisher};
 pub use notification_template_event_handlers::NotificationTemplateEventHandler;
 
-// <<< CUSTOM
-// END CUSTOM

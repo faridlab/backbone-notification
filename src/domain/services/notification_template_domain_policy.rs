@@ -18,5 +18,3 @@ use crate::domain::entity::NotificationTemplate;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type NotificationTemplateDomainPolicy = PermitAllPolicy<NotificationTemplate>;
 
-// <<< CUSTOM
-// END CUSTOM

@@ -32,5 +32,3 @@ pub type NotificationService = GenericCrudService<
     NotificationRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

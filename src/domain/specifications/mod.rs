@@ -9,5 +9,3 @@ pub use backbone_core::{Specification, AndSpecification, OrSpecification, NotSpe
 pub mod notification_specification;
 pub mod notification_template_specification;
 
-// <<< CUSTOM
-// END CUSTOM

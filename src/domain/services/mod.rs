@@ -8,5 +8,3 @@ pub mod notification_template_domain_policy;
 pub use notification_domain_policy::NotificationDomainPolicy;
 pub use notification_template_domain_policy::NotificationTemplateDomainPolicy;
 
-// <<< CUSTOM
-// END CUSTOM

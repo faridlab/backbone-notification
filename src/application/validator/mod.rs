@@ -11,5 +11,3 @@ pub mod notification_template_validator;
 pub use notification_validator::{NotificationValidator, notification_validator};
 pub use notification_template_validator::{NotificationTemplateValidator, notification_template_validator};
 
-// <<< CUSTOM
-// END CUSTOM

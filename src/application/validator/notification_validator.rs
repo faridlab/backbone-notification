@@ -20,9 +20,5 @@ pub fn notification_validator() -> NotificationValidator {
         .rule(OptionalNotBlank::new("subject", |e: &Notification| e.subject.as_deref()))
         .rule(RequiredString::new("body", |e: &Notification| &e.body))
         .rule(OptionalNotBlank::new("failure_reason", |e: &Notification| e.failure_reason.as_deref()))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

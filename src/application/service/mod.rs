@@ -10,13 +10,9 @@ pub use error::{ServiceError, ServiceResult};
 pub mod notification_service;
 pub mod notification_template_service;
 
-// <<< CUSTOM
-// END CUSTOM
 
 pub use notification_service::NotificationService;
 pub use notification_template_service::NotificationTemplateService;
-// <<< CUSTOM
-// END CUSTOM
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");
