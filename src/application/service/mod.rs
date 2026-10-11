@@ -11,18 +11,12 @@ pub mod notification_service;
 pub mod notification_template_service;
 
 // <<< CUSTOM
-pub mod notification_ports;
-pub mod notification_events;
-pub mod notification_write_service;
 // END CUSTOM
 
 pub use notification_service::NotificationService;
 pub use notification_template_service::NotificationTemplateService;
 // <<< CUSTOM
-pub use notification_ports::{CommunicationPort, DispatchAck, DispatchRejected, DispatchRequest};
-pub use notification_events::{LoggingSink, NotificationEvent, NotificationEventSink};
-pub use notification_write_service::{
-    DeliveryOutcome, NewTemplate, NotificationWriteService, NotifyError, NotifyEvent, NotifyOutcome,
-    Recipient,
-};
 // END CUSTOM
+
+// This directory's extension (hand-written; ADR-0031).
+include!("mod.ext.rs");

@@ -27,6 +27,16 @@ pub mod exports;
 // <<< CUSTOM MODULES
 // END CUSTOM
 
+// The module's extension (hand-written; ADR-0031).
+#[path = "lib.ext.rs"]
+mod lib_ext;
+pub use lib_ext::*;
+/// This crate's module and builder under fixed names, for the extension's `impl` blocks.
+#[allow(dead_code)]
+pub(crate) type ThisModule = NotificationModule;
+#[allow(dead_code)]
+pub(crate) type ThisModuleBuilder = NotificationModuleBuilder;
+
 // Re-exports for convenience - Domain entities
 pub use domain::entity::*;
 
@@ -56,12 +66,33 @@ use sqlx::PgPool;
 pub struct NotificationModule {
     pub(crate) notification_service: Arc<NotificationService>,
     pub(crate) notification_template_service: Arc<NotificationTemplateService>,
+    /// The module's extension state (`lib.ext.rs`); its fields read through `Deref`.
+    pub(crate) ext: ModuleExt,
     // <<< CUSTOM FIELDS
-    /// The validated write engine — idempotent fan-out, template render, dispatch through
-    /// `CommunicationPort`. This delivers the module's stated purpose; the two CRUD services
-    /// above are convenience scaffolding (see `readonly_routes` / `guarded_routes`).
-    pub(crate) write_service: Arc<application::service::NotificationWriteService>,
     // END CUSTOM
+}
+
+impl std::ops::Deref for NotificationModule {
+    type Target = ModuleExt;
+    fn deref(&self) -> &Self::Target {
+        &self.ext
+    }
+}
+
+impl std::ops::DerefMut for NotificationModule {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ext
+    }
+}
+
+/// What the extension's `build` hook receives from the generated build (ADR-0031).
+#[allow(dead_code)]
+pub(crate) struct ModuleParts<'a> {
+    pub(crate) db_pool: &'a PgPool,
+    pub(crate) notification_service: &'a Arc<NotificationService>,
+    pub(crate) notification_repository: &'a Arc<NotificationRepository>,
+    pub(crate) notification_template_service: &'a Arc<NotificationTemplateService>,
+    pub(crate) notification_template_repository: &'a Arc<NotificationTemplateRepository>,
 }
 
 impl NotificationModule {
@@ -113,37 +144,29 @@ impl NotificationModule {
     }
 
     // <<< CUSTOM METHODS
-    /// The validated notification engine (idempotent fan-out → render → dispatch).
-    ///
-    /// A composing service drives this from its domain-event subscriptions, passing a
-    /// `CommunicationPort` impl over backbone-communication. Generic CRUD on a `Notification`
-    /// row bypasses the dedup invariant — use THIS, not the write routes.
-    pub fn write_service(&self) -> Arc<application::service::NotificationWriteService> {
-        self.write_service.clone()
-    }
-
-    /// The recommended production surface: `Notification` **read-only** (a Notification is a
-    /// derived, append-only record — never hand-created) + `NotificationTemplate` full CRUD
-    /// (a template IS master data). `Notification` writes go through [`Self::write_service`]
-    /// only. `all_crud_routes()` exposes unguarded writes and is for trusted/admin/seeding.
-    pub fn guarded_routes(&self) -> Router {
-        use presentation::http::{
-            create_notification_read_routes,
-            create_notification_template_routes,
-        };
-
-        Router::new()
-            .merge(create_notification_read_routes(self.notification_service.clone()))
-            .merge(create_notification_template_routes(self.notification_template_service.clone()))
-    }
     // END CUSTOM
 }
 
 /// Builder for NotificationModule
 pub struct NotificationModuleBuilder {
     db_pool: Option<PgPool>,
+    /// The builder's extension state (`lib.ext.rs`); its fields read through `Deref`.
+    ext: ModuleBuilderExt,
     // <<< CUSTOM BUILDER FIELDS
     // END CUSTOM
+}
+
+impl std::ops::Deref for NotificationModuleBuilder {
+    type Target = ModuleBuilderExt;
+    fn deref(&self) -> &Self::Target {
+        &self.ext
+    }
+}
+
+impl std::ops::DerefMut for NotificationModuleBuilder {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ext
+    }
 }
 
 impl NotificationModuleBuilder {
@@ -151,6 +174,7 @@ impl NotificationModuleBuilder {
     pub fn new() -> Self {
         Self {
             db_pool: None,
+            ext: Default::default(),
             // <<< CUSTOM BUILDER DEFAULTS
             // END CUSTOM
         }
@@ -179,16 +203,22 @@ impl NotificationModuleBuilder {
         let notification_template_service = Arc::new(NotificationTemplateService::with_repository(notification_template_repository.clone()));
 
         // <<< CUSTOM
-        // The validated write engine. Self-constructs from the pool; CommunicationPort and
-        // NotificationEventSink stay per-call (the composing service's concern).
-        let write_service = Arc::new(application::service::NotificationWriteService::new(db_pool.clone()));
         // END CUSTOM
+
+        // The extension builds its own state from what the generated build made.
+        let ext = self.ext.build(&ModuleParts {
+            db_pool: &db_pool,
+            notification_service: &notification_service,
+            notification_repository: &notification_repository,
+            notification_template_service: &notification_template_service,
+            notification_template_repository: &notification_template_repository,
+        })?;
 
         Ok(NotificationModule {
             notification_service,
             notification_template_service,
+            ext,
             // <<< CUSTOM
-            write_service,
             // END CUSTOM
         })
     }
