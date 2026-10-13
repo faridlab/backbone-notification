@@ -56,7 +56,7 @@ impl backbone_core::write_guard::WriteGuard<Notification> for NotificationRowRul
         };
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
-        let mut shadow = Vec::new();
+        let shadow = Vec::new();
         let mut refuse = Vec::new();
         // `event_id_required` (@required on Notification.event_id)
         if (create || (update && r::changed(old.as_ref(), row, &["event_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "event_id")), r::not(r::is_empty(r::trim(r::field(row, "event_id")))))) {
@@ -68,7 +68,7 @@ impl backbone_core::write_guard::WriteGuard<Notification> for NotificationRowRul
         }
         // `event_type_max_length` (@length(max=80) on Notification.event_type)
         if (create || (update && r::changed(old.as_ref(), row, &["event_type"]))) && !r::holds(&r::le(r::length(r::field(row, "event_type")), r::Val::Num(80.0_f64))) {
-            shadow.push(Violation::new("event_type", "max_length", "event_type must be at most 80 characters").with_param("max", 80_i64));
+            refuse.push(Violation::new("event_type", "max_length", "event_type must be at most 80 characters").with_param("max", 80_i64));
         }
         // `recipient_address_required` (@required on Notification.recipient_address)
         if (create || (update && r::changed(old.as_ref(), row, &["recipient_address"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "recipient_address")), r::not(r::is_empty(r::trim(r::field(row, "recipient_address")))))) {
@@ -76,11 +76,11 @@ impl backbone_core::write_guard::WriteGuard<Notification> for NotificationRowRul
         }
         // `recipient_address_max_length` (@length(max=200) on Notification.recipient_address)
         if (create || (update && r::changed(old.as_ref(), row, &["recipient_address"]))) && !r::holds(&r::le(r::length(r::field(row, "recipient_address")), r::Val::Num(200.0_f64))) {
-            shadow.push(Violation::new("recipient_address", "max_length", "recipient_address must be at most 200 characters").with_param("max", 200_i64));
+            refuse.push(Violation::new("recipient_address", "max_length", "recipient_address must be at most 200 characters").with_param("max", 200_i64));
         }
         // `subject_max_length` (@length(max=200) on Notification.subject)
         if (create || (update && r::changed(old.as_ref(), row, &["subject"]))) && !r::holds(&r::le(r::length(r::field(row, "subject")), r::Val::Num(200.0_f64))) {
-            shadow.push(Violation::new("subject", "max_length", "subject must be at most 200 characters").with_param("max", 200_i64));
+            refuse.push(Violation::new("subject", "max_length", "subject must be at most 200 characters").with_param("max", 200_i64));
         }
         // `body_required` (@required on Notification.body)
         if (create || (update && r::changed(old.as_ref(), row, &["body"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "body")), r::not(r::is_empty(r::trim(r::field(row, "body")))))) {
@@ -88,11 +88,11 @@ impl backbone_core::write_guard::WriteGuard<Notification> for NotificationRowRul
         }
         // `body_max_length` (@length(max=4000) on Notification.body)
         if (create || (update && r::changed(old.as_ref(), row, &["body"]))) && !r::holds(&r::le(r::length(r::field(row, "body")), r::Val::Num(4000.0_f64))) {
-            shadow.push(Violation::new("body", "max_length", "body must be at most 4000 characters").with_param("max", 4000_i64));
+            refuse.push(Violation::new("body", "max_length", "body must be at most 4000 characters").with_param("max", 4000_i64));
         }
         // `failure_reason_max_length` (@length(max=300) on Notification.failure_reason)
         if (create || (update && r::changed(old.as_ref(), row, &["failure_reason"]))) && !r::holds(&r::le(r::length(r::field(row, "failure_reason")), r::Val::Num(300.0_f64))) {
-            shadow.push(Violation::new("failure_reason", "max_length", "failure_reason must be at most 300 characters").with_param("max", 300_i64));
+            refuse.push(Violation::new("failure_reason", "max_length", "failure_reason must be at most 300 characters").with_param("max", 300_i64));
         }
         GuardOutcome { refuse, shadow }
     }
