@@ -13,6 +13,8 @@ pub mod notification_template_service;
 
 pub use notification_service::NotificationService;
 pub use notification_template_service::NotificationTemplateService;
+pub use notification_service::NotificationRowRules;
+pub use notification_template_service::NotificationTemplateRowRules;
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");

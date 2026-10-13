@@ -32,3 +32,69 @@ pub type NotificationService = GenericCrudService<
     NotificationRepository,
 >;
 
+/// The rules the schema declares for Notification, checked against the row a create or update
+/// would store. The generated build attaches it to [`NotificationService`]. A refusing rule's
+/// break answers 422; a rule in shadow is logged under `backbone::write_guard` and the
+/// write goes ahead.
+pub struct NotificationRowRules;
+
+#[async_trait::async_trait]
+impl backbone_core::write_guard::WriteGuard<Notification> for NotificationRowRules {
+    async fn check(
+        &self,
+        ctx: &backbone_core::write_guard::WriteCtx<'_, Notification>,
+    ) -> backbone_core::write_guard::GuardOutcome {
+        use backbone_core::row_rule as r;
+        use backbone_core::violation::Violation;
+        use backbone_core::write_guard::{GuardOutcome, WriteKind};
+        let (create, update) = (ctx.kind == WriteKind::Create, ctx.kind == WriteKind::Update);
+        let Some(after) = ctx.after.filter(|_| create || update) else {
+            return GuardOutcome::allow();
+        };
+        let Ok(row) = serde_json::to_value(after) else {
+            return GuardOutcome::allow();
+        };
+        let row = &row;
+        let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
+        let mut shadow = Vec::new();
+        let mut refuse = Vec::new();
+        // `event_id_required` (@required on Notification.event_id)
+        if (create || (update && r::changed(old.as_ref(), row, &["event_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "event_id")), r::not(r::is_empty(r::trim(r::field(row, "event_id")))))) {
+            refuse.push(Violation::new("event_id", "required", "event_id is required"));
+        }
+        // `event_type_required` (@required on Notification.event_type)
+        if (create || (update && r::changed(old.as_ref(), row, &["event_type"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "event_type")), r::not(r::is_empty(r::trim(r::field(row, "event_type")))))) {
+            refuse.push(Violation::new("event_type", "required", "event_type is required"));
+        }
+        // `event_type_max_length` (@length(max=80) on Notification.event_type)
+        if (create || (update && r::changed(old.as_ref(), row, &["event_type"]))) && !r::holds(&r::le(r::length(r::field(row, "event_type")), r::Val::Num(80.0_f64))) {
+            shadow.push(Violation::new("event_type", "max_length", "event_type must be at most 80 characters").with_param("max", 80_i64));
+        }
+        // `recipient_address_required` (@required on Notification.recipient_address)
+        if (create || (update && r::changed(old.as_ref(), row, &["recipient_address"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "recipient_address")), r::not(r::is_empty(r::trim(r::field(row, "recipient_address")))))) {
+            refuse.push(Violation::new("recipient_address", "required", "recipient_address is required"));
+        }
+        // `recipient_address_max_length` (@length(max=200) on Notification.recipient_address)
+        if (create || (update && r::changed(old.as_ref(), row, &["recipient_address"]))) && !r::holds(&r::le(r::length(r::field(row, "recipient_address")), r::Val::Num(200.0_f64))) {
+            shadow.push(Violation::new("recipient_address", "max_length", "recipient_address must be at most 200 characters").with_param("max", 200_i64));
+        }
+        // `subject_max_length` (@length(max=200) on Notification.subject)
+        if (create || (update && r::changed(old.as_ref(), row, &["subject"]))) && !r::holds(&r::le(r::length(r::field(row, "subject")), r::Val::Num(200.0_f64))) {
+            shadow.push(Violation::new("subject", "max_length", "subject must be at most 200 characters").with_param("max", 200_i64));
+        }
+        // `body_required` (@required on Notification.body)
+        if (create || (update && r::changed(old.as_ref(), row, &["body"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "body")), r::not(r::is_empty(r::trim(r::field(row, "body")))))) {
+            refuse.push(Violation::new("body", "required", "body is required"));
+        }
+        // `body_max_length` (@length(max=4000) on Notification.body)
+        if (create || (update && r::changed(old.as_ref(), row, &["body"]))) && !r::holds(&r::le(r::length(r::field(row, "body")), r::Val::Num(4000.0_f64))) {
+            shadow.push(Violation::new("body", "max_length", "body must be at most 4000 characters").with_param("max", 4000_i64));
+        }
+        // `failure_reason_max_length` (@length(max=300) on Notification.failure_reason)
+        if (create || (update && r::changed(old.as_ref(), row, &["failure_reason"]))) && !r::holds(&r::le(r::length(r::field(row, "failure_reason")), r::Val::Num(300.0_f64))) {
+            shadow.push(Violation::new("failure_reason", "max_length", "failure_reason must be at most 300 characters").with_param("max", 300_i64));
+        }
+        GuardOutcome { refuse, shadow }
+    }
+}
+
