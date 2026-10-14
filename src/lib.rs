@@ -184,11 +184,11 @@ impl NotificationModuleBuilder {
 
         // Notification service
         let notification_repository = Arc::new(NotificationRepository::new(db_pool.clone()));
-        let notification_service = Arc::new(NotificationService::with_repository(notification_repository.clone()).with_guard(Arc::new(crate::application::service::NotificationRowRules)));
+        let notification_service = Arc::new(crate::application::service::build_notification_service(notification_repository.clone()));
 
         // NotificationTemplate service
         let notification_template_repository = Arc::new(NotificationTemplateRepository::new(db_pool.clone()));
-        let notification_template_service = Arc::new(NotificationTemplateService::with_repository(notification_template_repository.clone()).with_guard(Arc::new(crate::application::service::NotificationTemplateRowRules)));
+        let notification_template_service = Arc::new(crate::application::service::build_notification_template_service(notification_template_repository.clone()));
 
 
         // The extension builds its own state from what the generated build made.

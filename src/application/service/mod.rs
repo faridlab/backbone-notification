@@ -16,5 +16,21 @@ pub use notification_template_service::NotificationTemplateService;
 pub use notification_service::NotificationRowRules;
 pub use notification_template_service::NotificationTemplateRowRules;
 
+/// A `NotificationService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_notification_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::NotificationRepository>,
+) -> NotificationService {
+    NotificationService::with_repository(repository).with_guard(std::sync::Arc::new(NotificationRowRules))
+}
+
+/// A `NotificationTemplateService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_notification_template_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::NotificationTemplateRepository>,
+) -> NotificationTemplateService {
+    NotificationTemplateService::with_repository(repository).with_guard(std::sync::Arc::new(NotificationTemplateRowRules))
+}
+
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");
