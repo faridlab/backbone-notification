@@ -10,5 +10,5 @@ pub mod notification_template_handler;
 
 
 // Re-exports
-pub use notification_handler::{create_notification_routes, create_notification_read_routes, create_notification_write_routes};
-pub use notification_template_handler::{create_notification_template_routes, create_notification_template_read_routes, create_notification_template_write_routes};
+pub use notification_handler::{create_notification_routes, create_notification_read_routes, create_notification_write_routes, notification_permissions};
+pub use notification_template_handler::{create_notification_template_routes, create_notification_template_read_routes, create_notification_template_write_routes, notification_template_permissions};

@@ -33,6 +33,7 @@ pub struct CreateNotificationTemplateDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(alias = "event_type")]
     pub event_type: String,
+    #[serde(default = "default_create_notification_template_channel")]
     pub channel: NotifChannel,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
@@ -41,7 +42,16 @@ pub struct CreateNotificationTemplateDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(alias = "body_template")]
     pub body_template: String,
+    #[serde(default = "default_create_notification_template_status")]
     pub status: NotificationTemplateStatus,
+}
+
+fn default_create_notification_template_channel() -> NotifChannel {
+    NotifChannel::Whatsapp
+}
+
+fn default_create_notification_template_status() -> NotificationTemplateStatus {
+    NotificationTemplateStatus::Active
 }
 
 // =============================================================================
@@ -90,8 +100,8 @@ pub struct PatchNotificationTemplateDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "subject_template")]
-    pub subject_template: Option<String>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "subject_template")]
+    pub subject_template: Option<Option<String>>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "body_template")]
     pub body_template: Option<String>,
@@ -271,12 +281,4 @@ impl backbone_core::ApplyUpdateDto<UpdateNotificationTemplateDto> for Notificati
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to NotificationTemplate here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

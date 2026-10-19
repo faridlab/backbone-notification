@@ -48,11 +48,16 @@ pub struct CreateNotificationDto {
     pub subject: Option<String>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub body: String,
+    #[serde(default = "default_create_notification_status")]
     pub status: NotificationStatus,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "message_id")]
     pub message_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "failure_reason")]
     pub failure_reason: Option<String>,
+}
+
+fn default_create_notification_status() -> NotificationStatus {
+    NotificationStatus::Pending
 }
 
 // =============================================================================
@@ -110,26 +115,26 @@ pub struct PatchNotificationDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "event_type")]
     pub event_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "template_id")]
-    pub template_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "template_id")]
+    pub template_id: Option<Option<Uuid>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel: Option<NotifChannel>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "recipient_party_id")]
-    pub recipient_party_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "recipient_party_id")]
+    pub recipient_party_id: Option<Option<Uuid>>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "recipient_address")]
     pub recipient_address: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subject: Option<String>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub subject: Option<Option<String>>,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<NotificationStatus>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "message_id")]
-    pub message_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "failure_reason")]
-    pub failure_reason: Option<String>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "message_id")]
+    pub message_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "failure_reason")]
+    pub failure_reason: Option<Option<String>>,
 }
 
 impl PatchNotificationDto {
@@ -330,12 +335,4 @@ impl backbone_core::ApplyUpdateDto<UpdateNotificationDto> for Notification {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to Notification here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 
