@@ -1,6 +1,6 @@
 [package]
 name = "backbone-notification"
-version = "0.13.0"
+version = "0.13.1"
 edition = "2021"
 description = "Notification delivery and user preferences"
 license = "MIT OR Apache-2.0"
@@ -11,10 +11,10 @@ exclude = [".claude/", ".github/", "graphify-out/"]
 path = "src/lib.rs"
 
 [dependencies]
-backbone-outbox = { version = "3.0.0", features = ["multi_tenant"] }
+backbone-outbox = { version = " 3.18.0", features = ["multi_tenant"] }
 # Backbone Framework CORE dependencies
-backbone-core = { version = "3.7.0", features = ["postgres"] }
-backbone-orm = { version = "3.0.0" }
+backbone-core = { version = " 3.18.0", features = ["postgres"] }
+backbone-orm = { version = " 3.18.0" }
 backbone-auth = { version = "3.0.0" }
 backbone-messaging = { version = "3.0.0" }
 
