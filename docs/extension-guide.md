@@ -62,6 +62,11 @@ the subscription wiring is the host's.
   the same tx** as the status transition that produced it, then also published to the in-process sink.
   Drain the outbox for the durable signal — it survives a dropped in-process publish (`LoggingSink`, or a
   crash mid-publish).
+  The module's migrations create the table with every column the framework's staging and relay code uses
+  (`company_id`, `org_unit_id`, `failed_at`, `failure_reason`), so staging works on a database built from
+  the migration chain alone. The org-unit fill trigger, the row-level-security fence and the pending-tail
+  index remain the composing service's to install, by running `backbone_outbox::outbox::migrate` for the
+  `notification` schema.
 - A notification is dispatched at most once *to the recipient* when the `CommunicationPort` honors the
   idempotency key; `dispatch_pending` re-drives only rows not yet `sent`.
 - Rendering is flat `{{placeholder}}` substitution — templates carry no logic.

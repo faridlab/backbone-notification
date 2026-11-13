@@ -31,6 +31,10 @@ user_owned:
   # emission.
   - "migrations/20260909120000_strip_tenancy.up.sql"
   - "migrations/20260909120000_strip_tenancy.down.sql"
+  # Hand-authored migration: brings the lifecycle-event outbox mirror to the column set the framework's
+  # outbox code reads and writes. Not schema-derived: the table is framework-owned, not a model entity.
+  - "migrations/20261113000000_outbox_mirror_framework_columns.up.sql"
+  - "migrations/20261113000000_outbox_mirror_framework_columns.down.sql"
   # Seed scaffolding: the seeder generator emits these once at module create and
   # never rewrites them, so they are maintained by hand from here on.
   - "migrations/seeds/notification_seed.sql"
@@ -39,6 +43,7 @@ user_owned:
   - "tests/integrity_probes.rs"
   - "tests/notification_communication_seam.rs"
   - "tests/notification_golden_cases.rs"
+  - "tests/outbox_mirror_shape.rs"
   - "scripts/**"
 
   # Behavior tests (the golden cases / oracle) + BDD features.
